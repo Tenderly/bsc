@@ -20,9 +20,9 @@ import (
 	"context"
 	"sync"
 
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/rlp"
+	"github.com/tenderly/bsc/common"
+	"github.com/tenderly/bsc/core/types"
+	"github.com/tenderly/bsc/rlp"
 )
 
 type ltrInfo struct {

@@ -32,13 +32,13 @@ import (
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ethereum/go-ethereum/internal/testlog"
-	"github.com/ethereum/go-ethereum/log"
-	"github.com/ethereum/go-ethereum/p2p/enode"
-	"github.com/ethereum/go-ethereum/p2p/enr"
-	"github.com/ethereum/go-ethereum/rlp"
+	"github.com/tenderly/bsc/common"
+	"github.com/tenderly/bsc/crypto"
+	"github.com/tenderly/bsc/internal/testlog"
+	"github.com/tenderly/bsc/log"
+	"github.com/tenderly/bsc/p2p/enode"
+	"github.com/tenderly/bsc/p2p/enr"
+	"github.com/tenderly/bsc/rlp"
 )
 
 // shared test variables

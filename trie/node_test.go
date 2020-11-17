@@ -20,7 +20,7 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/ethereum/go-ethereum/rlp"
+	"github.com/tenderly/bsc/rlp"
 )
 
 func newTestFullNode(v []byte) []interface{} {

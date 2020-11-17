@@ -21,15 +21,15 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ethereum/go-ethereum/accounts/abi"
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/consensus"
-	"github.com/ethereum/go-ethereum/core"
-	"github.com/ethereum/go-ethereum/core/rawdb"
-	"github.com/ethereum/go-ethereum/core/state"
-	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/core/vm"
-	"github.com/ethereum/go-ethereum/params"
+	"github.com/tenderly/bsc/accounts/abi"
+	"github.com/tenderly/bsc/common"
+	"github.com/tenderly/bsc/consensus"
+	"github.com/tenderly/bsc/core"
+	"github.com/tenderly/bsc/core/rawdb"
+	"github.com/tenderly/bsc/core/state"
+	"github.com/tenderly/bsc/core/types"
+	"github.com/tenderly/bsc/core/vm"
+	"github.com/tenderly/bsc/params"
 )
 
 func TestDefaults(t *testing.T) {

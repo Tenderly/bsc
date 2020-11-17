@@ -25,10 +25,10 @@ import (
 	"os"
 	"testing"
 
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/params"
-	"github.com/ethereum/go-ethereum/rlp"
+	"github.com/tenderly/bsc/common"
+	"github.com/tenderly/bsc/core/types"
+	"github.com/tenderly/bsc/params"
+	"github.com/tenderly/bsc/rlp"
 	"golang.org/x/crypto/sha3"
 )
 

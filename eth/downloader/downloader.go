@@ -25,16 +25,16 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/ethereum/go-ethereum"
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/rawdb"
-	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/ethdb"
-	"github.com/ethereum/go-ethereum/event"
-	"github.com/ethereum/go-ethereum/log"
-	"github.com/ethereum/go-ethereum/metrics"
-	"github.com/ethereum/go-ethereum/params"
-	"github.com/ethereum/go-ethereum/trie"
+	"github.com/tenderly/bsc"
+	"github.com/tenderly/bsc/common"
+	"github.com/tenderly/bsc/core/rawdb"
+	"github.com/tenderly/bsc/core/types"
+	"github.com/tenderly/bsc/ethdb"
+	"github.com/tenderly/bsc/event"
+	"github.com/tenderly/bsc/log"
+	"github.com/tenderly/bsc/metrics"
+	"github.com/tenderly/bsc/params"
+	"github.com/tenderly/bsc/trie"
 )
 
 var (

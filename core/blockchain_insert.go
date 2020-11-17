@@ -19,10 +19,10 @@ package core
 import (
 	"time"
 
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/common/mclock"
-	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/log"
+	"github.com/tenderly/bsc/common"
+	"github.com/tenderly/bsc/common/mclock"
+	"github.com/tenderly/bsc/core/types"
+	"github.com/tenderly/bsc/log"
 )
 
 // insertStats tracks and reports on block insertion.

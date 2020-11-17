@@ -17,12 +17,12 @@
 package eth
 
 import (
-	"github.com/ethereum/go-ethereum/core"
-	"github.com/ethereum/go-ethereum/core/forkid"
-	"github.com/ethereum/go-ethereum/p2p"
-	"github.com/ethereum/go-ethereum/p2p/dnsdisc"
-	"github.com/ethereum/go-ethereum/p2p/enode"
-	"github.com/ethereum/go-ethereum/rlp"
+	"github.com/tenderly/bsc/core"
+	"github.com/tenderly/bsc/core/forkid"
+	"github.com/tenderly/bsc/p2p"
+	"github.com/tenderly/bsc/p2p/dnsdisc"
+	"github.com/tenderly/bsc/p2p/enode"
+	"github.com/tenderly/bsc/rlp"
 )
 
 // ethEntry is the "eth" ENR entry which advertises eth protocol

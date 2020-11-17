@@ -22,11 +22,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ethereum/go-ethereum/p2p/discover"
-	"github.com/ethereum/go-ethereum/p2p/enode"
-	"github.com/ethereum/go-ethereum/params"
+	"github.com/tenderly/bsc/common"
+	"github.com/tenderly/bsc/crypto"
+	"github.com/tenderly/bsc/p2p/discover"
+	"github.com/tenderly/bsc/p2p/enode"
+	"github.com/tenderly/bsc/params"
 	"gopkg.in/urfave/cli.v1"
 )
 

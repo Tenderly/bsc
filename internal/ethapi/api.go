@@ -26,24 +26,24 @@ import (
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
-	"github.com/ethereum/go-ethereum/accounts"
-	"github.com/ethereum/go-ethereum/accounts/keystore"
-	"github.com/ethereum/go-ethereum/accounts/scwallet"
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/common/hexutil"
-	"github.com/ethereum/go-ethereum/common/math"
-	"github.com/ethereum/go-ethereum/consensus/clique"
-	"github.com/ethereum/go-ethereum/consensus/ethash"
-	"github.com/ethereum/go-ethereum/core"
-	"github.com/ethereum/go-ethereum/core/rawdb"
-	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/core/vm"
-	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ethereum/go-ethereum/log"
-	"github.com/ethereum/go-ethereum/p2p"
-	"github.com/ethereum/go-ethereum/params"
-	"github.com/ethereum/go-ethereum/rlp"
-	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/tenderly/bsc/accounts"
+	"github.com/tenderly/bsc/accounts/keystore"
+	"github.com/tenderly/bsc/accounts/scwallet"
+	"github.com/tenderly/bsc/common"
+	"github.com/tenderly/bsc/common/hexutil"
+	"github.com/tenderly/bsc/common/math"
+	"github.com/tenderly/bsc/consensus/clique"
+	"github.com/tenderly/bsc/consensus/ethash"
+	"github.com/tenderly/bsc/core"
+	"github.com/tenderly/bsc/core/rawdb"
+	"github.com/tenderly/bsc/core/types"
+	"github.com/tenderly/bsc/core/vm"
+	"github.com/tenderly/bsc/crypto"
+	"github.com/tenderly/bsc/log"
+	"github.com/tenderly/bsc/p2p"
+	"github.com/tenderly/bsc/params"
+	"github.com/tenderly/bsc/rlp"
+	"github.com/tenderly/bsc/rpc"
 	"github.com/tyler-smith/go-bip39"
 )
 
@@ -408,7 +408,7 @@ func (s *PrivateAccountAPI) SignTransaction(ctx context.Context, args SendTxArgs
 //
 // The key used to calculate the signature is decrypted with the given password.
 //
-// https://github.com/ethereum/go-ethereum/wiki/Management-APIs#personal_sign
+// https://github.com/tenderly/bsc/wiki/Management-APIs#personal_sign
 func (s *PrivateAccountAPI) Sign(ctx context.Context, data hexutil.Bytes, addr common.Address, passwd string) (hexutil.Bytes, error) {
 	// Look up the wallet containing the requested signer
 	account := accounts.Account{Address: addr}
@@ -436,7 +436,7 @@ func (s *PrivateAccountAPI) Sign(ctx context.Context, data hexutil.Bytes, addr c
 // Note, the signature must conform to the secp256k1 curve R, S and V values, where
 // the V value must be 27 or 28 for legacy reasons.
 //
-// https://github.com/ethereum/go-ethereum/wiki/Management-APIs#personal_ecRecover
+// https://github.com/tenderly/bsc/wiki/Management-APIs#personal_ecRecover
 func (s *PrivateAccountAPI) EcRecover(ctx context.Context, data, sig hexutil.Bytes) (common.Address, error) {
 	if len(sig) != crypto.SignatureLength {
 		return common.Address{}, fmt.Errorf("signature must be %d bytes long", crypto.SignatureLength)

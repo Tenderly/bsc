@@ -25,13 +25,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ethereum/go-ethereum/common/mclock"
-	"github.com/ethereum/go-ethereum/event"
-	"github.com/ethereum/go-ethereum/log"
-	"github.com/ethereum/go-ethereum/metrics"
-	"github.com/ethereum/go-ethereum/p2p/enode"
-	"github.com/ethereum/go-ethereum/p2p/enr"
-	"github.com/ethereum/go-ethereum/rlp"
+	"github.com/tenderly/bsc/common/mclock"
+	"github.com/tenderly/bsc/event"
+	"github.com/tenderly/bsc/log"
+	"github.com/tenderly/bsc/metrics"
+	"github.com/tenderly/bsc/p2p/enode"
+	"github.com/tenderly/bsc/p2p/enr"
+	"github.com/tenderly/bsc/rlp"
 )
 
 var (

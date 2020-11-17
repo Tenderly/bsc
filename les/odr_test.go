@@ -23,17 +23,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/common/math"
-	"github.com/ethereum/go-ethereum/core"
-	"github.com/ethereum/go-ethereum/core/rawdb"
-	"github.com/ethereum/go-ethereum/core/state"
-	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/core/vm"
-	"github.com/ethereum/go-ethereum/ethdb"
-	"github.com/ethereum/go-ethereum/light"
-	"github.com/ethereum/go-ethereum/params"
-	"github.com/ethereum/go-ethereum/rlp"
+	"github.com/tenderly/bsc/common"
+	"github.com/tenderly/bsc/common/math"
+	"github.com/tenderly/bsc/core"
+	"github.com/tenderly/bsc/core/rawdb"
+	"github.com/tenderly/bsc/core/state"
+	"github.com/tenderly/bsc/core/types"
+	"github.com/tenderly/bsc/core/vm"
+	"github.com/tenderly/bsc/ethdb"
+	"github.com/tenderly/bsc/light"
+	"github.com/tenderly/bsc/params"
+	"github.com/tenderly/bsc/rlp"
 )
 
 type odrTestFn func(ctx context.Context, db ethdb.Database, config *params.ChainConfig, bc *core.BlockChain, lc *light.LightChain, bhash common.Hash) []byte

@@ -20,9 +20,9 @@ import (
 	"math/big"
 	"testing"
 
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/state"
-	"github.com/ethereum/go-ethereum/params"
+	"github.com/tenderly/bsc/common"
+	"github.com/tenderly/bsc/core/state"
+	"github.com/tenderly/bsc/params"
 )
 
 type dummyContractRef struct {

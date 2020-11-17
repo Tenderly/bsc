@@ -28,13 +28,13 @@ import (
 	"io"
 	"math/big"
 
-	"github.com/ethereum/go-ethereum/accounts"
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/common/hexutil"
-	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ethereum/go-ethereum/log"
-	"github.com/ethereum/go-ethereum/rlp"
+	"github.com/tenderly/bsc/accounts"
+	"github.com/tenderly/bsc/common"
+	"github.com/tenderly/bsc/common/hexutil"
+	"github.com/tenderly/bsc/core/types"
+	"github.com/tenderly/bsc/crypto"
+	"github.com/tenderly/bsc/log"
+	"github.com/tenderly/bsc/rlp"
 )
 
 // ledgerOpcode is an enumeration encoding the supported Ledger opcodes.

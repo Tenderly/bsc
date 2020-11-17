@@ -19,9 +19,9 @@ package types
 import (
 	"bytes"
 
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/rlp"
-	"github.com/ethereum/go-ethereum/trie"
+	"github.com/tenderly/bsc/common"
+	"github.com/tenderly/bsc/rlp"
+	"github.com/tenderly/bsc/trie"
 )
 
 type DerivableList interface {

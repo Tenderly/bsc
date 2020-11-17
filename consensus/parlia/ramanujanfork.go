@@ -4,8 +4,8 @@ import (
 	"math/rand"
 	"time"
 
-	"github.com/ethereum/go-ethereum/consensus"
-	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/tenderly/bsc/consensus"
+	"github.com/tenderly/bsc/core/types"
 )
 
 const (

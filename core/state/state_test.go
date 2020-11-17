@@ -21,10 +21,10 @@ import (
 	"math/big"
 	"testing"
 
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/rawdb"
-	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ethereum/go-ethereum/ethdb"
+	"github.com/tenderly/bsc/common"
+	"github.com/tenderly/bsc/core/rawdb"
+	"github.com/tenderly/bsc/crypto"
+	"github.com/tenderly/bsc/ethdb"
 )
 
 var toAddr = common.BytesToAddress

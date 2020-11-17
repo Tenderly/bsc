@@ -22,12 +22,12 @@ import (
 	"io"
 	"io/ioutil"
 
-	"github.com/ethereum/go-ethereum/accounts"
-	"github.com/ethereum/go-ethereum/accounts/external"
-	"github.com/ethereum/go-ethereum/accounts/keystore"
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/tenderly/bsc/accounts"
+	"github.com/tenderly/bsc/accounts/external"
+	"github.com/tenderly/bsc/accounts/keystore"
+	"github.com/tenderly/bsc/common"
+	"github.com/tenderly/bsc/core/types"
+	"github.com/tenderly/bsc/crypto"
 )
 
 // NewTransactor is a utility method to easily create a transaction signer from

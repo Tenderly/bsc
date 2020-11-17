@@ -25,9 +25,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ethereum/go-ethereum/p2p"
-	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/tenderly/bsc/crypto"
+	"github.com/tenderly/bsc/p2p"
+	"github.com/tenderly/bsc/rpc"
 
 	"github.com/stretchr/testify/assert"
 )

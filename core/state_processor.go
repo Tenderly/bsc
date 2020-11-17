@@ -17,15 +17,15 @@
 package core
 
 import (
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/consensus"
-	"github.com/ethereum/go-ethereum/consensus/misc"
-	"github.com/ethereum/go-ethereum/core/state"
-	"github.com/ethereum/go-ethereum/core/systemcontracts"
-	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/core/vm"
-	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ethereum/go-ethereum/params"
+	"github.com/tenderly/bsc/common"
+	"github.com/tenderly/bsc/consensus"
+	"github.com/tenderly/bsc/consensus/misc"
+	"github.com/tenderly/bsc/core/state"
+	"github.com/tenderly/bsc/core/systemcontracts"
+	"github.com/tenderly/bsc/core/types"
+	"github.com/tenderly/bsc/core/vm"
+	"github.com/tenderly/bsc/crypto"
+	"github.com/tenderly/bsc/params"
 )
 
 // StateProcessor is a basic Processor, which takes care of transitioning

@@ -21,7 +21,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/ethereum/go-ethereum/common"
+	"github.com/tenderly/bsc/common"
 )
 
 // weightedAccountIterator is an account iterator with an assigned weight. It is

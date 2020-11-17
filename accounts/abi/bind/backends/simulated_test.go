@@ -24,14 +24,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ethereum/go-ethereum"
-	"github.com/ethereum/go-ethereum/accounts/abi"
-	"github.com/ethereum/go-ethereum/accounts/abi/bind"
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core"
-	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ethereum/go-ethereum/params"
+	"github.com/tenderly/bsc"
+	"github.com/tenderly/bsc/accounts/abi"
+	"github.com/tenderly/bsc/accounts/abi/bind"
+	"github.com/tenderly/bsc/common"
+	"github.com/tenderly/bsc/core"
+	"github.com/tenderly/bsc/core/types"
+	"github.com/tenderly/bsc/crypto"
+	"github.com/tenderly/bsc/params"
 )
 
 func TestSimulatedBackend(t *testing.T) {

@@ -21,13 +21,13 @@ import (
 	"errors"
 	"math/big"
 
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core"
-	"github.com/ethereum/go-ethereum/core/bloombits"
-	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/ethdb"
-	"github.com/ethereum/go-ethereum/event"
-	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/tenderly/bsc/common"
+	"github.com/tenderly/bsc/core"
+	"github.com/tenderly/bsc/core/bloombits"
+	"github.com/tenderly/bsc/core/types"
+	"github.com/tenderly/bsc/ethdb"
+	"github.com/tenderly/bsc/event"
+	"github.com/tenderly/bsc/rpc"
 )
 
 type Backend interface {

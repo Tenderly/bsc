@@ -27,15 +27,15 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ethereum/go-ethereum/common/mclock"
-	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ethereum/go-ethereum/ethdb"
-	"github.com/ethereum/go-ethereum/les/utils"
-	"github.com/ethereum/go-ethereum/log"
-	"github.com/ethereum/go-ethereum/p2p"
-	"github.com/ethereum/go-ethereum/p2p/discv5"
-	"github.com/ethereum/go-ethereum/p2p/enode"
-	"github.com/ethereum/go-ethereum/rlp"
+	"github.com/tenderly/bsc/common/mclock"
+	"github.com/tenderly/bsc/crypto"
+	"github.com/tenderly/bsc/ethdb"
+	"github.com/tenderly/bsc/les/utils"
+	"github.com/tenderly/bsc/log"
+	"github.com/tenderly/bsc/p2p"
+	"github.com/tenderly/bsc/p2p/discv5"
+	"github.com/tenderly/bsc/p2p/enode"
+	"github.com/tenderly/bsc/rlp"
 )
 
 const (

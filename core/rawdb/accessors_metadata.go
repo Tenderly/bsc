@@ -19,11 +19,11 @@ package rawdb
 import (
 	"encoding/json"
 
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/ethdb"
-	"github.com/ethereum/go-ethereum/log"
-	"github.com/ethereum/go-ethereum/params"
-	"github.com/ethereum/go-ethereum/rlp"
+	"github.com/tenderly/bsc/common"
+	"github.com/tenderly/bsc/ethdb"
+	"github.com/tenderly/bsc/log"
+	"github.com/tenderly/bsc/params"
+	"github.com/tenderly/bsc/rlp"
 )
 
 // ReadDatabaseVersion retrieves the version number of the database.

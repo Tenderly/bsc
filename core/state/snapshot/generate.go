@@ -23,14 +23,14 @@ import (
 	"time"
 
 	"github.com/VictoriaMetrics/fastcache"
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/common/math"
-	"github.com/ethereum/go-ethereum/core/rawdb"
-	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ethereum/go-ethereum/ethdb"
-	"github.com/ethereum/go-ethereum/log"
-	"github.com/ethereum/go-ethereum/rlp"
-	"github.com/ethereum/go-ethereum/trie"
+	"github.com/tenderly/bsc/common"
+	"github.com/tenderly/bsc/common/math"
+	"github.com/tenderly/bsc/core/rawdb"
+	"github.com/tenderly/bsc/crypto"
+	"github.com/tenderly/bsc/ethdb"
+	"github.com/tenderly/bsc/log"
+	"github.com/tenderly/bsc/rlp"
+	"github.com/tenderly/bsc/trie"
 )
 
 var (

@@ -21,11 +21,11 @@ import (
 	"math"
 	"math/big"
 
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/consensus"
-	"github.com/ethereum/go-ethereum/core/vm"
-	"github.com/ethereum/go-ethereum/log"
-	"github.com/ethereum/go-ethereum/params"
+	"github.com/tenderly/bsc/common"
+	"github.com/tenderly/bsc/consensus"
+	"github.com/tenderly/bsc/core/vm"
+	"github.com/tenderly/bsc/log"
+	"github.com/tenderly/bsc/params"
 )
 
 var (

@@ -30,8 +30,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/tenderly/bsc/common"
+	"github.com/tenderly/bsc/crypto"
 )
 
 // Node represents a host on the network.

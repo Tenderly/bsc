@@ -27,14 +27,14 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/ethereum/go-ethereum/accounts"
-	"github.com/ethereum/go-ethereum/core/rawdb"
-	"github.com/ethereum/go-ethereum/ethdb"
-	"github.com/ethereum/go-ethereum/event"
-	"github.com/ethereum/go-ethereum/internal/debug"
-	"github.com/ethereum/go-ethereum/log"
-	"github.com/ethereum/go-ethereum/p2p"
-	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/tenderly/bsc/accounts"
+	"github.com/tenderly/bsc/core/rawdb"
+	"github.com/tenderly/bsc/ethdb"
+	"github.com/tenderly/bsc/event"
+	"github.com/tenderly/bsc/internal/debug"
+	"github.com/tenderly/bsc/log"
+	"github.com/tenderly/bsc/p2p"
+	"github.com/tenderly/bsc/rpc"
 	"github.com/prometheus/tsdb/fileutil"
 )
 

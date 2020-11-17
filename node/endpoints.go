@@ -21,8 +21,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/ethereum/go-ethereum/log"
-	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/tenderly/bsc/log"
+	"github.com/tenderly/bsc/rpc"
 )
 
 // StartHTTPEndpoint starts the HTTP RPC endpoint.

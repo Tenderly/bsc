@@ -41,24 +41,24 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ethereum/go-ethereum/accounts"
-	"github.com/ethereum/go-ethereum/accounts/abi"
-	"github.com/ethereum/go-ethereum/accounts/keystore"
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core"
-	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/eth"
-	"github.com/ethereum/go-ethereum/eth/downloader"
-	"github.com/ethereum/go-ethereum/ethclient"
-	"github.com/ethereum/go-ethereum/ethstats"
-	"github.com/ethereum/go-ethereum/les"
-	"github.com/ethereum/go-ethereum/log"
-	"github.com/ethereum/go-ethereum/node"
-	"github.com/ethereum/go-ethereum/p2p"
-	"github.com/ethereum/go-ethereum/p2p/discv5"
-	"github.com/ethereum/go-ethereum/p2p/enode"
-	"github.com/ethereum/go-ethereum/p2p/nat"
-	"github.com/ethereum/go-ethereum/params"
+	"github.com/tenderly/bsc/accounts"
+	"github.com/tenderly/bsc/accounts/abi"
+	"github.com/tenderly/bsc/accounts/keystore"
+	"github.com/tenderly/bsc/common"
+	"github.com/tenderly/bsc/core"
+	"github.com/tenderly/bsc/core/types"
+	"github.com/tenderly/bsc/eth"
+	"github.com/tenderly/bsc/eth/downloader"
+	"github.com/tenderly/bsc/ethclient"
+	"github.com/tenderly/bsc/ethstats"
+	"github.com/tenderly/bsc/les"
+	"github.com/tenderly/bsc/log"
+	"github.com/tenderly/bsc/node"
+	"github.com/tenderly/bsc/p2p"
+	"github.com/tenderly/bsc/p2p/discv5"
+	"github.com/tenderly/bsc/p2p/enode"
+	"github.com/tenderly/bsc/p2p/nat"
+	"github.com/tenderly/bsc/params"
 	"github.com/gorilla/websocket"
 )
 
@@ -512,7 +512,7 @@ func (f *faucet) apiHandler(w http.ResponseWriter, r *http.Request) {
 			username, avatar, address, err = authNoAuth(msg.URL)
 		default:
 			//lint:ignore ST1005 This error is to be displayed in the browser
-			err = errors.New("Something funky happened, please open an issue at https://github.com/ethereum/go-ethereum/issues")
+			err = errors.New("Something funky happened, please open an issue at https://github.com/tenderly/bsc/issues")
 		}
 		if err != nil {
 			if err = sendError(conn, err); err != nil {

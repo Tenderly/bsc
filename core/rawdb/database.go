@@ -23,11 +23,11 @@ import (
 	"os"
 	"time"
 
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/ethdb"
-	"github.com/ethereum/go-ethereum/ethdb/leveldb"
-	"github.com/ethereum/go-ethereum/ethdb/memorydb"
-	"github.com/ethereum/go-ethereum/log"
+	"github.com/tenderly/bsc/common"
+	"github.com/tenderly/bsc/ethdb"
+	"github.com/tenderly/bsc/ethdb/leveldb"
+	"github.com/tenderly/bsc/ethdb/memorydb"
+	"github.com/tenderly/bsc/log"
 	"github.com/olekukonko/tablewriter"
 )
 

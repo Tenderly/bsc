@@ -24,14 +24,14 @@ import (
 	"net"
 	"os"
 
-	"github.com/ethereum/go-ethereum/cmd/utils"
-	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ethereum/go-ethereum/log"
-	"github.com/ethereum/go-ethereum/p2p/discover"
-	"github.com/ethereum/go-ethereum/p2p/discv5"
-	"github.com/ethereum/go-ethereum/p2p/enode"
-	"github.com/ethereum/go-ethereum/p2p/nat"
-	"github.com/ethereum/go-ethereum/p2p/netutil"
+	"github.com/tenderly/bsc/cmd/utils"
+	"github.com/tenderly/bsc/crypto"
+	"github.com/tenderly/bsc/log"
+	"github.com/tenderly/bsc/p2p/discover"
+	"github.com/tenderly/bsc/p2p/discv5"
+	"github.com/tenderly/bsc/p2p/enode"
+	"github.com/tenderly/bsc/p2p/nat"
+	"github.com/tenderly/bsc/p2p/netutil"
 )
 
 func main() {
