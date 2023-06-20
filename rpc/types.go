@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"strconv"
 	"strings"
 
 	"github.com/tenderly/bsc/common"
@@ -35,18 +36,14 @@ type API struct {
 	Public    bool        // indication if the methods must be considered safe for public use
 }
 
-// Error wraps RPC errors, which contain an error code in addition to the message.
-type Error interface {
-	Error() string  // returns the message
-	ErrorCode() int // returns the code
-}
-
 // ServerCodec implements reading, parsing and writing RPC messages for the server side of
 // a RPC session. Implementations must be go-routine safe since the codec can be called in
 // multiple go-routines concurrently.
 type ServerCodec interface {
+	peerInfo() PeerInfo
 	readBatch() (msgs []*jsonrpcMessage, isBatch bool, err error)
 	close()
+
 	jsonWriter
 }
 
@@ -63,13 +60,15 @@ type jsonWriter interface {
 type BlockNumber int64
 
 const (
-	PendingBlockNumber  = BlockNumber(-2)
-	LatestBlockNumber   = BlockNumber(-1)
-	EarliestBlockNumber = BlockNumber(0)
+	SafeBlockNumber      = BlockNumber(-4)
+	FinalizedBlockNumber = BlockNumber(-3)
+	PendingBlockNumber   = BlockNumber(-2)
+	LatestBlockNumber    = BlockNumber(-1)
+	EarliestBlockNumber  = BlockNumber(0)
 )
 
 // UnmarshalJSON parses the given JSON fragment into a BlockNumber. It supports:
-// - "latest", "earliest" or "pending" as string arguments
+// - "safe", "finalized", "latest", "earliest" or "pending" as string arguments
 // - the block number
 // Returned errors:
 // - an invalid block number error when the given argument isn't a known strings
@@ -90,6 +89,12 @@ func (bn *BlockNumber) UnmarshalJSON(data []byte) error {
 	case "pending":
 		*bn = PendingBlockNumber
 		return nil
+	case "finalized":
+		*bn = FinalizedBlockNumber
+		return nil
+	case "safe":
+		*bn = SafeBlockNumber
+		return nil
 	}
 
 	blckNum, err := hexutil.DecodeUint64(input)
@@ -101,6 +106,26 @@ func (bn *BlockNumber) UnmarshalJSON(data []byte) error {
 	}
 	*bn = BlockNumber(blckNum)
 	return nil
+}
+
+// MarshalText implements encoding.TextMarshaler. It marshals:
+// - "safe", "finalized", "latest", "earliest" or "pending" as strings
+// - other numbers as hex
+func (bn BlockNumber) MarshalText() ([]byte, error) {
+	switch bn {
+	case EarliestBlockNumber:
+		return []byte("earliest"), nil
+	case LatestBlockNumber:
+		return []byte("latest"), nil
+	case PendingBlockNumber:
+		return []byte("pending"), nil
+	case FinalizedBlockNumber:
+		return []byte("finalized"), nil
+	case SafeBlockNumber:
+		return []byte("safe"), nil
+	default:
+		return hexutil.Uint64(bn).MarshalText()
+	}
 }
 
 func (bn BlockNumber) Int64() int64 {
@@ -144,6 +169,14 @@ func (bnh *BlockNumberOrHash) UnmarshalJSON(data []byte) error {
 		bn := PendingBlockNumber
 		bnh.BlockNumber = &bn
 		return nil
+	case "finalized":
+		bn := FinalizedBlockNumber
+		bnh.BlockNumber = &bn
+		return nil
+	case "safe":
+		bn := SafeBlockNumber
+		bnh.BlockNumber = &bn
+		return nil
 	default:
 		if len(input) == 66 {
 			hash := common.Hash{}
@@ -175,6 +208,16 @@ func (bnh *BlockNumberOrHash) Number() (BlockNumber, bool) {
 	return BlockNumber(0), false
 }
 
+func (bnh *BlockNumberOrHash) String() string {
+	if bnh.BlockNumber != nil {
+		return strconv.Itoa(int(*bnh.BlockNumber))
+	}
+	if bnh.BlockHash != nil {
+		return bnh.BlockHash.String()
+	}
+	return "nil"
+}
+
 func (bnh *BlockNumberOrHash) Hash() (common.Hash, bool) {
 	if bnh.BlockHash != nil {
 		return *bnh.BlockHash, true
@@ -196,4 +239,25 @@ func BlockNumberOrHashWithHash(hash common.Hash, canonical bool) BlockNumberOrHa
 		BlockHash:        &hash,
 		RequireCanonical: canonical,
 	}
+}
+
+// DecimalOrHex unmarshals a non-negative decimal or hex parameter into a uint64.
+type DecimalOrHex uint64
+
+// UnmarshalJSON implements json.Unmarshaler.
+func (dh *DecimalOrHex) UnmarshalJSON(data []byte) error {
+	input := strings.TrimSpace(string(data))
+	if len(input) >= 2 && input[0] == '"' && input[len(input)-1] == '"' {
+		input = input[1 : len(input)-1]
+	}
+
+	value, err := strconv.ParseUint(input, 10, 64)
+	if err != nil {
+		value, err = hexutil.DecodeUint64(input)
+	}
+	if err != nil {
+		return err
+	}
+	*dh = DecimalOrHex(value)
+	return nil
 }

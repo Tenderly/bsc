@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"reflect"
 	"strconv"
 	"strings"
@@ -13,9 +14,12 @@ import (
 	"unicode/utf8"
 )
 
+var (
+	timeFormat     = "2006-01-02T15:04:05-0700"
+	termTimeFormat = "01-02|15:04:05.000"
+)
+
 const (
-	timeFormat        = "2006-01-02T15:04:05-0700"
-	termTimeFormat    = "01-02|15:04:05.000"
 	floatFormat       = 'f'
 	termMsgJust       = 40
 	termCtxMaxPadding = 40
@@ -78,12 +82,11 @@ type TerminalStringer interface {
 // a terminal with color-coded level output and terser human friendly timestamp.
 // This format should only be used for interactive programs or while developing.
 //
-//     [LEVEL] [TIME] MESAGE key=value key=value ...
+//	[LEVEL] [TIME] MESSAGE key=value key=value ...
 //
 // Example:
 //
-//     [DBUG] [May 16 20:58:45] remove route ns=haproxy addr=127.0.0.1:50002
-//
+//	[DBUG] [May 16 20:58:45] remove route ns=haproxy addr=127.0.0.1:50002
 func TerminalFormat(usecolor bool) Format {
 	return FormatFunc(func(r *Record) []byte {
 		var color = 0
@@ -148,7 +151,6 @@ func TerminalFormat(usecolor bool) Format {
 // format for key/value pairs.
 //
 // For more details see: http://godoc.org/github.com/kr/logfmt
-//
 func LogfmtFormat() Format {
 	return FormatFunc(func(r *Record) []byte {
 		common := []interface{}{r.KeyNames.Time, r.Time, r.KeyNames.Lvl, r.Lvl, r.KeyNames.Msg, r.Msg}
@@ -329,11 +331,20 @@ func formatLogfmtValue(value interface{}, term bool) string {
 		return "nil"
 	}
 
-	if t, ok := value.(time.Time); ok {
+	switch v := value.(type) {
+	case time.Time:
 		// Performance optimization: No need for escaping since the provided
 		// timeFormat doesn't have any escape characters, and escaping is
 		// expensive.
-		return t.Format(timeFormat)
+		return v.Format(timeFormat)
+
+	case *big.Int:
+		// Big ints get consumed by the Stringer clause so we need to handle
+		// them earlier on.
+		if v == nil {
+			return "<nil>"
+		}
+		return formatLogfmtBigInt(v)
 	}
 	if term {
 		if s, ok := value.(TerminalStringer); ok {
@@ -349,8 +360,27 @@ func formatLogfmtValue(value interface{}, term bool) string {
 		return strconv.FormatFloat(float64(v), floatFormat, 3, 64)
 	case float64:
 		return strconv.FormatFloat(v, floatFormat, 3, 64)
-	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
-		return fmt.Sprintf("%d", value)
+	case int8:
+		return strconv.FormatInt(int64(v), 10)
+	case uint8:
+		return strconv.FormatInt(int64(v), 10)
+	case int16:
+		return strconv.FormatInt(int64(v), 10)
+	case uint16:
+		return strconv.FormatInt(int64(v), 10)
+	// Larger integers get thousands separators.
+	case int:
+		return FormatLogfmtInt64(int64(v))
+	case int32:
+		return FormatLogfmtInt64(int64(v))
+	case int64:
+		return FormatLogfmtInt64(v)
+	case uint:
+		return FormatLogfmtUint64(uint64(v))
+	case uint32:
+		return FormatLogfmtUint64(uint64(v))
+	case uint64:
+		return FormatLogfmtUint64(v)
 	case string:
 		return escapeString(v)
 	default:
@@ -358,49 +388,108 @@ func formatLogfmtValue(value interface{}, term bool) string {
 	}
 }
 
-var stringBufPool = sync.Pool{
-	New: func() interface{} { return new(bytes.Buffer) },
+// FormatLogfmtInt64 formats n with thousand separators.
+func FormatLogfmtInt64(n int64) string {
+	if n < 0 {
+		return formatLogfmtUint64(uint64(-n), true)
+	}
+	return formatLogfmtUint64(uint64(n), false)
 }
 
-func escapeString(s string) string {
-	needsQuotes := false
-	needsEscape := false
-	for _, r := range s {
-		if r <= ' ' || r == '=' || r == '"' {
-			needsQuotes = true
-		}
-		if r == '\\' || r == '"' || r == '\n' || r == '\r' || r == '\t' {
-			needsEscape = true
+// FormatLogfmtUint64 formats n with thousand separators.
+func FormatLogfmtUint64(n uint64) string {
+	return formatLogfmtUint64(n, false)
+}
+
+func formatLogfmtUint64(n uint64, neg bool) string {
+	// Small numbers are fine as is
+	if n < 100000 {
+		if neg {
+			return strconv.Itoa(-int(n))
+		} else {
+			return strconv.Itoa(int(n))
 		}
 	}
-	if !needsEscape && !needsQuotes {
+	// Large numbers should be split
+	const maxLength = 26
+
+	var (
+		out   = make([]byte, maxLength)
+		i     = maxLength - 1
+		comma = 0
+	)
+	for ; n > 0; i-- {
+		if comma == 3 {
+			comma = 0
+			out[i] = ','
+		} else {
+			comma++
+			out[i] = '0' + byte(n%10)
+			n /= 10
+		}
+	}
+	if neg {
+		out[i] = '-'
+		i--
+	}
+	return string(out[i+1:])
+}
+
+// formatLogfmtBigInt formats n with thousand separators.
+func formatLogfmtBigInt(n *big.Int) string {
+	if n.IsUint64() {
+		return FormatLogfmtUint64(n.Uint64())
+	}
+	if n.IsInt64() {
+		return FormatLogfmtInt64(n.Int64())
+	}
+
+	var (
+		text  = n.String()
+		buf   = make([]byte, len(text)+len(text)/3)
+		comma = 0
+		i     = len(buf) - 1
+	)
+	for j := len(text) - 1; j >= 0; j, i = j-1, i-1 {
+		c := text[j]
+
+		switch {
+		case c == '-':
+			buf[i] = c
+		case comma == 3:
+			buf[i] = ','
+			i--
+			comma = 0
+			fallthrough
+		default:
+			buf[i] = c
+			comma++
+		}
+	}
+	return string(buf[i+1:])
+}
+
+// escapeString checks if the provided string needs escaping/quoting, and
+// calls strconv.Quote if needed
+func escapeString(s string) string {
+	needsQuoting := false
+	for _, r := range s {
+		// We quote everything below " (0x34) and above~ (0x7E), plus equal-sign
+		if r <= '"' || r > '~' || r == '=' {
+			needsQuoting = true
+			break
+		}
+	}
+	if !needsQuoting {
 		return s
 	}
-	e := stringBufPool.Get().(*bytes.Buffer)
-	e.WriteByte('"')
-	for _, r := range s {
-		switch r {
-		case '\\', '"':
-			e.WriteByte('\\')
-			e.WriteByte(byte(r))
-		case '\n':
-			e.WriteString("\\n")
-		case '\r':
-			e.WriteString("\\r")
-		case '\t':
-			e.WriteString("\\t")
-		default:
-			e.WriteRune(r)
-		}
-	}
-	e.WriteByte('"')
-	var ret string
-	if needsQuotes {
-		ret = e.String()
-	} else {
-		ret = string(e.Bytes()[1 : e.Len()-1])
-	}
-	e.Reset()
-	stringBufPool.Put(e)
-	return ret
+	return strconv.Quote(s)
+}
+
+func SetTermTimeFormat(format string) {
+	termTimeFormat = format
+}
+
+func SetTimeFormat(format string) {
+	timeFormat = format
 }

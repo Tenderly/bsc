@@ -21,6 +21,7 @@ import (
 	"fmt"
 
 	"github.com/tenderly/bsc/common"
+	"github.com/tenderly/bsc/core/types"
 	"github.com/tenderly/bsc/rlp"
 	"github.com/tenderly/bsc/trie"
 )
@@ -104,7 +105,7 @@ func (it *NodeIterator) step() error {
 		return nil
 	}
 	// Otherwise we've reached an account node, initiate data iteration
-	var account Account
+	var account types.StateAccount
 	if err := rlp.Decode(bytes.NewReader(it.stateIt.LeafBlob()), &account); err != nil {
 		return err
 	}

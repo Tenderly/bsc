@@ -18,16 +18,13 @@ package snapshot
 
 import (
 	"bytes"
-	"io/ioutil"
-	"os"
 	"testing"
 
 	"github.com/VictoriaMetrics/fastcache"
 	"github.com/tenderly/bsc/common"
 	"github.com/tenderly/bsc/core/rawdb"
-	"github.com/tenderly/bsc/ethdb"
-	"github.com/tenderly/bsc/ethdb/leveldb"
 	"github.com/tenderly/bsc/ethdb/memorydb"
+	"github.com/tenderly/bsc/rlp"
 )
 
 // reverse reverses the contents of a byte slice. It's used to update random accs
@@ -120,11 +117,11 @@ func TestDiskMerge(t *testing.T) {
 	base.Storage(conNukeCache, conNukeCacheSlot)
 
 	// Modify or delete some accounts, flatten everything onto disk
-	if err := snaps.Update(diffRoot, baseRoot, map[common.Hash]struct{}{
-		accDelNoCache:  struct{}{},
-		accDelCache:    struct{}{},
-		conNukeNoCache: struct{}{},
-		conNukeCache:   struct{}{},
+	if err := snaps.update(diffRoot, baseRoot, map[common.Hash]struct{}{
+		accDelNoCache:  {},
+		accDelCache:    {},
+		conNukeNoCache: {},
+		conNukeCache:   {},
 	}, map[common.Hash][]byte{
 		accModNoCache: reverse(accModNoCache[:]),
 		accModCache:   reverse(accModCache[:]),
@@ -133,7 +130,7 @@ func TestDiskMerge(t *testing.T) {
 		conModCache:   {conModCacheSlot: reverse(conModCacheSlot[:])},
 		conDelNoCache: {conDelNoCacheSlot: nil},
 		conDelCache:   {conDelCacheSlot: nil},
-	}); err != nil {
+	}, nil); err != nil {
 		t.Fatalf("failed to update snapshot tree: %v", err)
 	}
 	if err := snaps.Cap(diffRoot, 0); err != nil {
@@ -343,11 +340,11 @@ func TestDiskPartialMerge(t *testing.T) {
 		assertStorage(conNukeCache, conNukeCacheSlot, conNukeCacheSlot[:])
 
 		// Modify or delete some accounts, flatten everything onto disk
-		if err := snaps.Update(diffRoot, baseRoot, map[common.Hash]struct{}{
-			accDelNoCache:  struct{}{},
-			accDelCache:    struct{}{},
-			conNukeNoCache: struct{}{},
-			conNukeCache:   struct{}{},
+		if err := snaps.update(diffRoot, baseRoot, map[common.Hash]struct{}{
+			accDelNoCache:  {},
+			accDelCache:    {},
+			conNukeNoCache: {},
+			conNukeCache:   {},
 		}, map[common.Hash][]byte{
 			accModNoCache: reverse(accModNoCache[:]),
 			accModCache:   reverse(accModCache[:]),
@@ -356,7 +353,7 @@ func TestDiskPartialMerge(t *testing.T) {
 			conModCache:   {conModCacheSlot: reverse(conModCacheSlot[:])},
 			conDelNoCache: {conDelNoCacheSlot: nil},
 			conDelCache:   {conDelCacheSlot: nil},
-		}); err != nil {
+		}, nil); err != nil {
 			t.Fatalf("test %d: failed to update snapshot tree: %v", i, err)
 		}
 		if err := snaps.Cap(diffRoot, 0); err != nil {
@@ -429,6 +426,81 @@ func TestDiskPartialMerge(t *testing.T) {
 	}
 }
 
+// Tests that when the bottom-most diff layer is merged into the disk
+// layer whether the corresponding generator is persisted correctly.
+func TestDiskGeneratorPersistence(t *testing.T) {
+	var (
+		accOne        = randomHash()
+		accTwo        = randomHash()
+		accOneSlotOne = randomHash()
+		accOneSlotTwo = randomHash()
+
+		accThree     = randomHash()
+		accThreeSlot = randomHash()
+		baseRoot     = randomHash()
+		diffRoot     = randomHash()
+		diffTwoRoot  = randomHash()
+		genMarker    = append(randomHash().Bytes(), randomHash().Bytes()...)
+	)
+	// Testing scenario 1, the disk layer is still under the construction.
+	db := rawdb.NewMemoryDatabase()
+
+	rawdb.WriteAccountSnapshot(db, accOne, accOne[:])
+	rawdb.WriteStorageSnapshot(db, accOne, accOneSlotOne, accOneSlotOne[:])
+	rawdb.WriteStorageSnapshot(db, accOne, accOneSlotTwo, accOneSlotTwo[:])
+	rawdb.WriteSnapshotRoot(db, baseRoot)
+
+	// Create a disk layer based on all above updates
+	snaps := &Tree{
+		layers: map[common.Hash]snapshot{
+			baseRoot: &diskLayer{
+				diskdb:    db,
+				cache:     fastcache.New(500 * 1024),
+				root:      baseRoot,
+				genMarker: genMarker,
+			},
+		},
+	}
+	// Modify or delete some accounts, flatten everything onto disk
+	if err := snaps.update(diffRoot, baseRoot, nil, map[common.Hash][]byte{
+		accTwo: accTwo[:],
+	}, nil, nil); err != nil {
+		t.Fatalf("failed to update snapshot tree: %v", err)
+	}
+	if err := snaps.Cap(diffRoot, 0); err != nil {
+		t.Fatalf("failed to flatten snapshot tree: %v", err)
+	}
+	blob := rawdb.ReadSnapshotGenerator(db)
+	var generator journalGenerator
+	if err := rlp.DecodeBytes(blob, &generator); err != nil {
+		t.Fatalf("Failed to decode snapshot generator %v", err)
+	}
+	if !bytes.Equal(generator.Marker, genMarker) {
+		t.Fatalf("Generator marker is not matched")
+	}
+	// Test scenario 2, the disk layer is fully generated
+	// Modify or delete some accounts, flatten everything onto disk
+	if err := snaps.update(diffTwoRoot, diffRoot, nil, map[common.Hash][]byte{
+		accThree: accThree.Bytes(),
+	}, map[common.Hash]map[common.Hash][]byte{
+		accThree: {accThreeSlot: accThreeSlot.Bytes()},
+	}, nil); err != nil {
+		t.Fatalf("failed to update snapshot tree: %v", err)
+	}
+	diskLayer := snaps.layers[snaps.diskRoot()].(*diskLayer)
+	diskLayer.genMarker = nil // Construction finished
+	if err := snaps.Cap(diffTwoRoot, 0); err != nil {
+		t.Fatalf("failed to flatten snapshot tree: %v", err)
+	}
+	blob = rawdb.ReadSnapshotGenerator(db)
+	if err := rlp.DecodeBytes(blob, &generator); err != nil {
+		t.Fatalf("Failed to decode snapshot generator %v", err)
+	}
+	if len(generator.Marker) != 0 {
+		t.Fatalf("Failed to update snapshot generator")
+	}
+}
+
 // Tests that merging something into a disk layer persists it into the database
 // and invalidates any previously written and cached values, discarding anything
 // after the in-progress generation marker.
@@ -442,18 +514,7 @@ func TestDiskMidAccountPartialMerge(t *testing.T) {
 // TestDiskSeek tests that seek-operations work on the disk layer
 func TestDiskSeek(t *testing.T) {
 	// Create some accounts in the disk layer
-	var db ethdb.Database
-
-	if dir, err := ioutil.TempDir("", "disklayer-test"); err != nil {
-		t.Fatal(err)
-	} else {
-		defer os.RemoveAll(dir)
-		diskdb, err := leveldb.New(dir, 256, 0, "")
-		if err != nil {
-			t.Fatal(err)
-		}
-		db = rawdb.NewDatabase(diskdb)
-	}
+	db := rawdb.NewMemoryDatabase()
 	// Fill even keys [0,2,4...]
 	for i := 0; i < 0xff; i += 2 {
 		acc := common.Hash{byte(i)}

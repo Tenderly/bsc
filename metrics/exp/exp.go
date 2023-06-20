@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"sync"
 
+	"github.com/tenderly/bsc/log"
 	"github.com/tenderly/bsc/metrics"
 	"github.com/tenderly/bsc/metrics/prometheus"
 )
@@ -52,6 +53,20 @@ func ExpHandler(r metrics.Registry) http.Handler {
 	return http.HandlerFunc(e.expHandler)
 }
 
+// Setup starts a dedicated metrics server at the given address.
+// This function enables metrics reporting separate from pprof.
+func Setup(address string) {
+	m := http.NewServeMux()
+	m.Handle("/debug/metrics", ExpHandler(metrics.DefaultRegistry))
+	m.Handle("/debug/metrics/prometheus", prometheus.Handler(metrics.DefaultRegistry))
+	log.Info("Starting metrics server", "addr", fmt.Sprintf("http://%s/debug/metrics", address))
+	go func() {
+		if err := http.ListenAndServe(address, m); err != nil {
+			log.Error("Failure in running metrics server", "err", err)
+		}
+	}()
+}
+
 func (exp *exp) getInt(name string) *expvar.Int {
 	var v *expvar.Int
 	exp.expvarLock.Lock()
@@ -74,6 +89,20 @@ func (exp *exp) getFloat(name string) *expvar.Float {
 		v = p.(*expvar.Float)
 	} else {
 		v = new(expvar.Float)
+		expvar.Publish(name, v)
+	}
+	exp.expvarLock.Unlock()
+	return v
+}
+
+func (exp *exp) getMap(name string) *expvar.Map {
+	var v *expvar.Map
+	exp.expvarLock.Lock()
+	p := expvar.Get(name)
+	if p != nil {
+		v = p.(*expvar.Map)
+	} else {
+		v = new(expvar.Map)
 		expvar.Publish(name, v)
 	}
 	exp.expvarLock.Unlock()
@@ -113,7 +142,7 @@ func (exp *exp) publishMeter(name string, metric metrics.Meter) {
 	exp.getInt(name + ".count").Set(m.Count())
 	exp.getFloat(name + ".one-minute").Set(m.Rate1())
 	exp.getFloat(name + ".five-minute").Set(m.Rate5())
-	exp.getFloat(name + ".fifteen-minute").Set((m.Rate15()))
+	exp.getFloat(name + ".fifteen-minute").Set(m.Rate15())
 	exp.getFloat(name + ".mean").Set(m.RateMean())
 }
 
@@ -147,6 +176,60 @@ func (exp *exp) publishResettingTimer(name string, metric metrics.ResettingTimer
 	exp.getInt(name + ".99-percentile").Set(ps[3])
 }
 
+func (exp *exp) publishLabel(name string, metric metrics.Label) {
+	labels := metric.Value()
+	for k, v := range labels {
+		exp.getMap(name).Set(k, exp.interfaceToExpVal(v))
+	}
+}
+
+func (exp *exp) interfaceToExpVal(v interface{}) expvar.Var {
+	switch i := v.(type) {
+	case string:
+		newV := new(expvar.String)
+		newV.Set(i)
+		return newV
+	case int64:
+		newV := new(expvar.Int)
+		newV.Set(i)
+		return newV
+	case int32:
+		newV := new(expvar.Int)
+		newV.Set(int64(i))
+		return newV
+	case int16:
+		newV := new(expvar.Int)
+		newV.Set(int64(i))
+		return newV
+	case int8:
+		newV := new(expvar.Int)
+		newV.Set(int64(i))
+		return newV
+	case int:
+		newV := new(expvar.Int)
+		newV.Set(int64(i))
+		return newV
+	case float32:
+		newV := new(expvar.Float)
+		newV.Set(float64(i))
+		return newV
+	case float64:
+		newV := new(expvar.Float)
+		newV.Set(i)
+		return newV
+	case map[string]interface{}:
+		newV := new(expvar.Map)
+		for k, v := range i {
+			newV.Set(k, exp.interfaceToExpVal(v))
+		}
+		return newV
+	default:
+		newV := new(expvar.String)
+		newV.Set(fmt.Sprint(v))
+		return newV
+	}
+}
+
 func (exp *exp) syncToExpvar() {
 	exp.registry.Each(func(name string, i interface{}) {
 		switch i := i.(type) {
@@ -164,6 +247,8 @@ func (exp *exp) syncToExpvar() {
 			exp.publishTimer(name, i)
 		case metrics.ResettingTimer:
 			exp.publishResettingTimer(name, i)
+		case metrics.Label:
+			exp.publishLabel(name, i)
 		default:
 			panic(fmt.Sprintf("unsupported type for '%s': %T", name, i))
 		}

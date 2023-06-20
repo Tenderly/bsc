@@ -32,7 +32,6 @@ import (
 	"github.com/tenderly/bsc/event"
 	"github.com/tenderly/bsc/log"
 	"github.com/tenderly/bsc/params"
-	"github.com/tenderly/bsc/rlp"
 )
 
 const (
@@ -69,6 +68,7 @@ type TxPool struct {
 	clearIdx     uint64                               // earliest block nr that can contain mined tx info
 
 	istanbul bool // Fork indicator whether we are in the istanbul stage.
+	eip2718  bool // Fork indicator whether we are in the eip2718 stage.
 }
 
 // TxRelayBackend provides an interface to the mechanism that forwards transacions
@@ -76,10 +76,13 @@ type TxPool struct {
 //
 // Send instructs backend to forward new transactions
 // NewHead notifies backend about a new head after processed by the tx pool,
-//  including  mined and rolled back transactions since the last event
+//
+//	including  mined and rolled back transactions since the last event
+//
 // Discard notifies backend about transactions that should be discarded either
-//  because they have been replaced by a re-send or because they have been mined
-//  long ago and no rollback is expected
+//
+//	because they have been replaced by a re-send or because they have been mined
+//	long ago and no rollback is expected
 type TxRelayBackend interface {
 	Send(txs types.Transactions)
 	NewHead(head common.Hash, mined []common.Hash, rollback []common.Hash)
@@ -90,7 +93,7 @@ type TxRelayBackend interface {
 func NewTxPool(config *params.ChainConfig, chain *LightChain, relay TxRelayBackend) *TxPool {
 	pool := &TxPool{
 		config:      config,
-		signer:      types.NewEIP155Signer(config.ChainID),
+		signer:      types.LatestSigner(config),
 		nonce:       make(map[common.Address]uint64),
 		pending:     make(map[common.Hash]*types.Transaction),
 		mined:       make(map[common.Hash][]*types.Transaction),
@@ -185,7 +188,7 @@ func (pool *TxPool) checkMinedTxs(ctx context.Context, hash common.Hash, number 
 		if _, err := GetBlockReceipts(ctx, pool.odr, hash, number); err != nil { // ODR caches, ignore results
 			return err
 		}
-		rawdb.WriteTxLookupEntries(pool.chainDb, block)
+		rawdb.WriteTxLookupEntriesByBlock(pool.chainDb, block)
 
 		// Update the transaction pool's state
 		for _, tx := range list {
@@ -314,6 +317,7 @@ func (pool *TxPool) setNewHead(head *types.Header) {
 	// Update fork indicator by next pending block number
 	next := new(big.Int).Add(head.Number, big.NewInt(1))
 	pool.istanbul = pool.config.IsIstanbul(next)
+	pool.eip2718 = pool.config.IsBerlin(next)
 }
 
 // Stop stops the light transaction pool
@@ -381,7 +385,7 @@ func (pool *TxPool) validateTx(ctx context.Context, tx *types.Transaction) error
 	}
 
 	// Should supply enough intrinsic gas
-	gas, err := core.IntrinsicGas(tx.Data(), tx.To() == nil, true, pool.istanbul)
+	gas, err := core.IntrinsicGas(tx.Data(), tx.AccessList(), tx.To() == nil, true, pool.istanbul)
 	if err != nil {
 		return err
 	}
@@ -430,8 +434,7 @@ func (pool *TxPool) add(ctx context.Context, tx *types.Transaction) error {
 func (pool *TxPool) Add(ctx context.Context, tx *types.Transaction) error {
 	pool.mu.Lock()
 	defer pool.mu.Unlock()
-
-	data, err := rlp.EncodeToBytes(tx)
+	data, err := tx.MarshalBinary()
 	if err != nil {
 		return err
 	}
@@ -503,6 +506,25 @@ func (pool *TxPool) Content() (map[common.Address]types.Transactions, map[common
 	// There are no queued transactions in a light pool, just return an empty map
 	queued := make(map[common.Address]types.Transactions)
 	return pending, queued
+}
+
+// ContentFrom retrieves the data content of the transaction pool, returning the
+// pending as well as queued transactions of this address, grouped by nonce.
+func (pool *TxPool) ContentFrom(addr common.Address) (types.Transactions, types.Transactions) {
+	pool.mu.RLock()
+	defer pool.mu.RUnlock()
+
+	// Retrieve the pending transactions and sort by nonce
+	var pending types.Transactions
+	for _, tx := range pool.pending {
+		account, _ := types.Sender(pool.signer, tx)
+		if account != addr {
+			continue
+		}
+		pending = append(pending, tx)
+	}
+	// There are no queued transactions in a light pool, just return an empty map
+	return pending, types.Transactions{}
 }
 
 // RemoveTransactions removes all given transactions from the pool.

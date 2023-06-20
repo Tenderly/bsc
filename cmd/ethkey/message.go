@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"io/ioutil"
 
+	"github.com/tenderly/bsc/accounts"
 	"github.com/tenderly/bsc/accounts/keystore"
 	"github.com/tenderly/bsc/cmd/utils"
 	"github.com/tenderly/bsc/common"
@@ -62,13 +63,13 @@ To sign a message contained in a file, use the --msgfile flag.
 		}
 
 		// Decrypt key with passphrase.
-		passphrase := getPassphrase(ctx)
+		passphrase := getPassphrase(ctx, false)
 		key, err := keystore.DecryptKey(keyjson, passphrase)
 		if err != nil {
 			utils.Fatalf("Error decrypting key: %v", err)
 		}
 
-		signature, err := crypto.Sign(signHash(message), key.PrivateKey)
+		signature, err := crypto.Sign(accounts.TextHash(message), key.PrivateKey)
 		if err != nil {
 			utils.Fatalf("Failed to sign message: %v", err)
 		}
@@ -113,7 +114,7 @@ It is possible to refer to a file containing the message.`,
 			utils.Fatalf("Signature encoding is not hexadecimal: %v", err)
 		}
 
-		recoveredPubkey, err := crypto.SigToPub(signHash(message), signature)
+		recoveredPubkey, err := crypto.SigToPub(accounts.TextHash(message), signature)
 		if err != nil || recoveredPubkey == nil {
 			utils.Fatalf("Signature verification failed: %v", err)
 		}

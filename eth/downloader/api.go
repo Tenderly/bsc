@@ -20,7 +20,8 @@ import (
 	"context"
 	"sync"
 
-	ethereum "github.com/tenderly/bsc"
+	"github.com/tenderly/bsc"
+	"github.com/tenderly/bsc/common/gopool"
 	"github.com/tenderly/bsc/event"
 	"github.com/tenderly/bsc/rpc"
 )
@@ -98,7 +99,7 @@ func (api *PublicDownloaderAPI) Syncing(ctx context.Context) (*rpc.Subscription,
 
 	rpcSub := notifier.CreateSubscription()
 
-	go func() {
+	gopool.Submit(func() {
 		statuses := make(chan interface{})
 		sub := api.SubscribeSyncStatus(statuses)
 
@@ -114,7 +115,7 @@ func (api *PublicDownloaderAPI) Syncing(ctx context.Context) (*rpc.Subscription,
 				return
 			}
 		}
-	}()
+	})
 
 	return rpcSub, nil
 }

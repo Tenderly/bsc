@@ -23,7 +23,7 @@ import (
 
 	"github.com/tenderly/bsc/cmd/evm/internal/compiler"
 
-	cli "gopkg.in/urfave/cli.v1"
+	"gopkg.in/urfave/cli.v1"
 )
 
 var compileCommand = cli.Command{

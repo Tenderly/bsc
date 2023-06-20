@@ -28,7 +28,6 @@ import (
 	"github.com/tenderly/bsc/crypto"
 	"github.com/tenderly/bsc/log"
 	"github.com/tenderly/bsc/p2p/discover"
-	"github.com/tenderly/bsc/p2p/discv5"
 	"github.com/tenderly/bsc/p2p/enode"
 	"github.com/tenderly/bsc/p2p/nat"
 	"github.com/tenderly/bsc/p2p/netutil"
@@ -36,19 +35,21 @@ import (
 
 func main() {
 	var (
-		listenAddr  = flag.String("addr", ":30301", "listen address")
-		genKey      = flag.String("genkey", "", "generate a node key")
-		writeAddr   = flag.Bool("writeaddress", false, "write out the node's public key and quit")
-		nodeKeyFile = flag.String("nodekey", "", "private key filename")
-		nodeKeyHex  = flag.String("nodekeyhex", "", "private key as hex (for testing)")
-		natdesc     = flag.String("nat", "none", "port mapping mechanism (any|none|upnp|pmp|extip:<IP>)")
-		netrestrict = flag.String("netrestrict", "", "restrict network communication to the given IP networks (CIDR masks)")
-		runv5       = flag.Bool("v5", false, "run a v5 topic discovery bootnode")
-		verbosity   = flag.Int("verbosity", int(log.LvlInfo), "log verbosity (0-9)")
-		vmodule     = flag.String("vmodule", "", "log verbosity pattern")
+		listenAddr    = flag.String("addr", ":30301", "listen address")
+		genKey        = flag.String("genkey", "", "generate a node key")
+		writeAddr     = flag.Bool("writeaddress", false, "write out the node's public key and quit")
+		nodeKeyFile   = flag.String("nodekey", "", "private key filename")
+		nodeKeyHex    = flag.String("nodekeyhex", "", "private key as hex (for testing)")
+		natdesc       = flag.String("nat", "none", "port mapping mechanism (any|none|upnp|pmp|extip:<IP>)")
+		netrestrict   = flag.String("netrestrict", "", "restrict network communication to the given IP networks (CIDR masks)")
+		runv5         = flag.Bool("v5", false, "run a v5 topic discovery bootnode")
+		verbosity     = flag.Int("verbosity", int(log.LvlInfo), "log verbosity (0-5)")
+		vmodule       = flag.String("vmodule", "", "log verbosity pattern")
+		networkFilter = flag.String("network", "", "<bsc/chapel/rialto> filters nodes by eth ENR entry")
 
-		nodeKey *ecdsa.PrivateKey
-		err     error
+		nodeKey        *ecdsa.PrivateKey
+		filterFunction discover.NodeFilterFunc
+		err            error
 	)
 	flag.Parse()
 
@@ -87,6 +88,12 @@ func main() {
 		}
 	}
 
+	if *networkFilter != "" {
+		if filterFunction, err = discover.ParseEthFilter(*networkFilter); err != nil {
+			utils.Fatalf("-network: %v", err)
+		}
+	}
+
 	if *writeAddr {
 		fmt.Printf("%x\n", crypto.FromECDSAPub(&nodeKey.PublicKey)[1:])
 		os.Exit(0)
@@ -121,17 +128,18 @@ func main() {
 
 	printNotice(&nodeKey.PublicKey, *realaddr)
 
+	db, _ := enode.OpenDB("")
+	ln := enode.NewLocalNode(db, nodeKey)
+	cfg := discover.Config{
+		PrivateKey:     nodeKey,
+		NetRestrict:    restrictList,
+		FilterFunction: filterFunction,
+	}
 	if *runv5 {
-		if _, err := discv5.ListenUDP(nodeKey, conn, "", restrictList); err != nil {
+		if _, err := discover.ListenV5(conn, ln, cfg); err != nil {
 			utils.Fatalf("%v", err)
 		}
 	} else {
-		db, _ := enode.OpenDB("")
-		ln := enode.NewLocalNode(db, nodeKey)
-		cfg := discover.Config{
-			PrivateKey:  nodeKey,
-			NetRestrict: restrictList,
-		}
 		if _, err := discover.ListenUDP(conn, ln, cfg); err != nil {
 			utils.Fatalf("%v", err)
 		}

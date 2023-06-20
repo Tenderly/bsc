@@ -23,6 +23,7 @@ import (
 	"testing"
 
 	"github.com/tenderly/bsc/common"
+	"github.com/tenderly/bsc/common/gopool"
 	"github.com/tenderly/bsc/crypto"
 	"github.com/tenderly/bsc/ethdb/memorydb"
 )
@@ -119,7 +120,8 @@ func TestSecureTrieConcurrency(t *testing.T) {
 	pend := new(sync.WaitGroup)
 	pend.Add(threads)
 	for i := 0; i < threads; i++ {
-		go func(index int) {
+		index := i
+		gopool.Submit(func() {
 			defer pend.Done()
 
 			for j := byte(0); j < 255; j++ {
@@ -137,7 +139,7 @@ func TestSecureTrieConcurrency(t *testing.T) {
 				}
 			}
 			tries[index].Commit(nil)
-		}(i)
+		})
 	}
 	// Wait for all threads to finish
 	pend.Wait()

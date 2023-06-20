@@ -18,6 +18,8 @@ package rpc
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"math/rand"
 	"net"
@@ -26,6 +28,7 @@ import (
 	"os"
 	"reflect"
 	"runtime"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -63,6 +66,33 @@ func TestClientResponseType(t *testing.T) {
 	err := client.Call(resultVar, "test_echo", "hello", 10, &echoArgs{"world"})
 	if err == nil {
 		t.Error("Passing a var as result should be an error")
+	}
+}
+
+// This test checks that server-returned errors with code and data come out of Client.Call.
+func TestClientErrorData(t *testing.T) {
+	server := newTestServer()
+	defer server.Stop()
+	client := DialInProc(server)
+	defer client.Close()
+
+	var resp interface{}
+	err := client.Call(&resp, "test_returnError")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+
+	// Check code.
+	if e, ok := err.(Error); !ok {
+		t.Fatalf("client did not return rpc.Error, got %#v", e)
+	} else if e.ErrorCode() != (testError{}.ErrorCode()) {
+		t.Fatalf("wrong error code %d, want %d", e.ErrorCode(), testError{}.ErrorCode())
+	}
+	// Check data.
+	if e, ok := err.(DataError); !ok {
+		t.Fatalf("client did not return rpc.DataError, got %#v", e)
+	} else if e.ErrorData() != (testError{}.ErrorData()) {
+		t.Fatalf("wrong error data %#v, want %#v", e.ErrorData(), testError{}.ErrorData())
 	}
 }
 
@@ -113,6 +143,53 @@ func TestClientBatchRequest(t *testing.T) {
 	if !reflect.DeepEqual(batch, wantResult) {
 		t.Errorf("batch results mismatch:\ngot %swant %s", spew.Sdump(batch), spew.Sdump(wantResult))
 	}
+}
+
+func TestClientBatchRequest_len(t *testing.T) {
+	b, err := json.Marshal([]jsonrpcMessage{
+		{Version: "2.0", ID: json.RawMessage("1"), Method: "foo", Result: json.RawMessage(`"0x1"`)},
+		{Version: "2.0", ID: json.RawMessage("2"), Method: "bar", Result: json.RawMessage(`"0x2"`)},
+	})
+	if err != nil {
+		t.Fatal("failed to encode jsonrpc message:", err)
+	}
+	s := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		_, err := rw.Write(b)
+		if err != nil {
+			t.Error("failed to write response:", err)
+		}
+	}))
+	t.Cleanup(s.Close)
+
+	client, err := Dial(s.URL)
+	if err != nil {
+		t.Fatal("failed to dial test server:", err)
+	}
+	defer client.Close()
+
+	t.Run("too-few", func(t *testing.T) {
+		batch := []BatchElem{
+			{Method: "foo"},
+			{Method: "bar"},
+			{Method: "baz"},
+		}
+		ctx, cancelFn := context.WithTimeout(context.Background(), time.Second)
+		defer cancelFn()
+		if err := client.BatchCallContext(ctx, batch); !errors.Is(err, ErrBadResult) {
+			t.Errorf("expected %q but got: %v", ErrBadResult, err)
+		}
+	})
+
+	t.Run("too-many", func(t *testing.T) {
+		batch := []BatchElem{
+			{Method: "foo"},
+		}
+		ctx, cancelFn := context.WithTimeout(context.Background(), time.Second)
+		defer cancelFn()
+		if err := client.BatchCallContext(ctx, batch); !errors.Is(err, ErrBadResult) {
+			t.Errorf("expected %q but got: %v", ErrBadResult, err)
+		}
+	})
 }
 
 func TestClientNotify(t *testing.T) {
@@ -348,6 +425,93 @@ func TestClientCloseUnsubscribeRace(t *testing.T) {
 	}
 }
 
+// unsubscribeRecorder collects the subscription IDs of *_unsubscribe calls.
+type unsubscribeRecorder struct {
+	ServerCodec
+	unsubscribes map[string]bool
+}
+
+func (r *unsubscribeRecorder) readBatch() ([]*jsonrpcMessage, bool, error) {
+	if r.unsubscribes == nil {
+		r.unsubscribes = make(map[string]bool)
+	}
+
+	msgs, batch, err := r.ServerCodec.readBatch()
+	for _, msg := range msgs {
+		if msg.isUnsubscribe() {
+			var params []string
+			if err := json.Unmarshal(msg.Params, &params); err != nil {
+				panic("unsubscribe decode error: " + err.Error())
+			}
+			r.unsubscribes[params[0]] = true
+		}
+	}
+	return msgs, batch, err
+}
+
+// This checks that Client calls the _unsubscribe method on the server when Unsubscribe is
+// called on a subscription.
+func TestClientSubscriptionUnsubscribeServer(t *testing.T) {
+	t.Parallel()
+
+	// Create the server.
+	srv := NewServer()
+	srv.RegisterName("nftest", new(notificationTestService))
+	p1, p2 := net.Pipe()
+	recorder := &unsubscribeRecorder{ServerCodec: NewCodec(p1)}
+	go srv.ServeCodec(recorder, OptionMethodInvocation|OptionSubscriptions)
+	defer srv.Stop()
+
+	// Create the client on the other end of the pipe.
+	client, _ := newClient(context.Background(), func(context.Context) (ServerCodec, error) {
+		return NewCodec(p2), nil
+	})
+	defer client.Close()
+
+	// Create the subscription.
+	ch := make(chan int)
+	sub, err := client.Subscribe(context.Background(), "nftest", ch, "someSubscription", 1, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Unsubscribe and check that unsubscribe was called.
+	sub.Unsubscribe()
+	if !recorder.unsubscribes[sub.subid] {
+		t.Fatal("client did not call unsubscribe method")
+	}
+	if _, open := <-sub.Err(); open {
+		t.Fatal("subscription error channel not closed after unsubscribe")
+	}
+}
+
+// This checks that the subscribed channel can be closed after Unsubscribe.
+// It is the reproducer for https://github.com/tenderly/bsc/issues/22322
+func TestClientSubscriptionChannelClose(t *testing.T) {
+	t.Parallel()
+
+	var (
+		srv     = NewServer()
+		httpsrv = httptest.NewServer(srv.WebsocketHandler(nil))
+		wsURL   = "ws:" + strings.TrimPrefix(httpsrv.URL, "http:")
+	)
+	defer srv.Stop()
+	defer httpsrv.Close()
+
+	srv.RegisterName("nftest", new(notificationTestService))
+	client, _ := Dial(wsURL)
+
+	for i := 0; i < 100; i++ {
+		ch := make(chan int, 100)
+		sub, err := client.Subscribe(context.Background(), "nftest", ch, "someSubscription", maxClientSubscriptionBuffer-1, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sub.Unsubscribe()
+		close(ch)
+	}
+}
+
 // This test checks that Client doesn't lock up when a single subscriber
 // doesn't read subscription events.
 func TestClientNotificationStorm(t *testing.T) {
@@ -399,7 +563,43 @@ func TestClientNotificationStorm(t *testing.T) {
 	}
 
 	doTest(8000, false)
-	doTest(23000, true)
+	doTest(24000, true)
+}
+
+func TestClientSetHeader(t *testing.T) {
+	var gotHeader bool
+	srv := newTestServer()
+	httpsrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("test") == "ok" {
+			gotHeader = true
+		}
+		srv.ServeHTTP(w, r)
+	}))
+	defer httpsrv.Close()
+	defer srv.Stop()
+
+	client, err := Dial(httpsrv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+
+	client.SetHeader("test", "ok")
+	if _, err := client.SupportedModules(); err != nil {
+		t.Fatal(err)
+	}
+	if !gotHeader {
+		t.Fatal("client did not set custom header")
+	}
+
+	// Check that Content-Type can be replaced.
+	client.SetHeader("content-type", "application/x-garbage")
+	_, err = client.SupportedModules()
+	if err == nil {
+		t.Fatal("no error for invalid content-type header")
+	} else if !strings.Contains(err.Error(), "Unsupported Media Type") {
+		t.Fatalf("error is not related to content-type: %q", err)
+	}
 }
 
 func TestClientHTTP(t *testing.T) {
@@ -463,6 +663,7 @@ func TestClientReconnect(t *testing.T) {
 	// Start a server and corresponding client.
 	s1, l1 := startServer("127.0.0.1:0")
 	client, err := DialContext(ctx, "ws://"+l1.Addr().String())
+	defer client.Close()
 	if err != nil {
 		t.Fatal("can't dial", err)
 	}

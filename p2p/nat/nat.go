@@ -25,8 +25,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/tenderly/bsc/log"
+	"github.com/tenderly/bsc/common/gopool"
+
 	natpmp "github.com/jackpal/go-nat-pmp"
+	"github.com/tenderly/bsc/log"
 )
 
 // An implementation of nat.Interface can map local ports to ports
@@ -53,12 +55,12 @@ type Interface interface {
 // The following formats are currently accepted.
 // Note that mechanism names are not case-sensitive.
 //
-//     "" or "none"         return nil
-//     "extip:77.12.33.4"   will assume the local machine is reachable on the given IP
-//     "any"                uses the first auto-detected mechanism
-//     "upnp"               uses the Universal Plug and Play protocol
-//     "pmp"                uses NAT-PMP with an auto-detected gateway address
-//     "pmp:192.168.0.1"    uses NAT-PMP with the given gateway address
+//	"" or "none"         return nil
+//	"extip:77.12.33.4"   will assume the local machine is reachable on the given IP
+//	"any"                uses the first auto-detected mechanism
+//	"upnp"               uses the Universal Plug and Play protocol
+//	"pmp"                uses NAT-PMP with an auto-detected gateway address
+//	"pmp:192.168.0.1"    uses NAT-PMP with the given gateway address
 func Parse(spec string) (Interface, error) {
 	var (
 		parts = strings.SplitN(spec, ":", 2)
@@ -91,15 +93,14 @@ func Parse(spec string) (Interface, error) {
 }
 
 const (
-	mapTimeout        = 20 * time.Minute
-	mapUpdateInterval = 15 * time.Minute
+	mapTimeout = 10 * time.Minute
 )
 
 // Map adds a port mapping on m and keeps it alive until c is closed.
 // This function is typically invoked in its own goroutine.
-func Map(m Interface, c chan struct{}, protocol string, extport, intport int, name string) {
+func Map(m Interface, c <-chan struct{}, protocol string, extport, intport int, name string) {
 	log := log.New("proto", protocol, "extport", extport, "intport", intport, "interface", m)
-	refresh := time.NewTimer(mapUpdateInterval)
+	refresh := time.NewTimer(mapTimeout)
 	defer func() {
 		refresh.Stop()
 		log.Debug("Deleting port mapping")
@@ -121,7 +122,7 @@ func Map(m Interface, c chan struct{}, protocol string, extport, intport int, na
 			if err := m.AddMapping(protocol, extport, intport, name, mapTimeout); err != nil {
 				log.Debug("Couldn't add port mapping", "err", err)
 			}
-			refresh.Reset(mapUpdateInterval)
+			refresh.Reset(mapTimeout)
 		}
 	}
 }
@@ -146,8 +147,8 @@ func Any() Interface {
 	// Internet-class address. Return ExtIP in this case.
 	return startautodisc("UPnP or NAT-PMP", func() Interface {
 		found := make(chan Interface, 2)
-		go func() { found <- discoverUPnP() }()
-		go func() { found <- discoverPMP() }()
+		gopool.Submit(func() { found <- discoverUPnP() })
+		gopool.Submit(func() { found <- discoverPMP() })
 		for i := 0; i < cap(found); i++ {
 			if c := <-found; c != nil {
 				return c
@@ -220,9 +221,8 @@ func (n *autodisc) String() string {
 	defer n.mu.Unlock()
 	if n.found == nil {
 		return n.what
-	} else {
-		return n.found.String()
 	}
+	return n.found.String()
 }
 
 // wait blocks until auto-discovery has been performed.

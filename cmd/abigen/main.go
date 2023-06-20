@@ -30,6 +30,7 @@ import (
 	"github.com/tenderly/bsc/cmd/utils"
 	"github.com/tenderly/bsc/common/compiler"
 	"github.com/tenderly/bsc/crypto"
+	"github.com/tenderly/bsc/internal/flags"
 	"github.com/tenderly/bsc/log"
 	"gopkg.in/urfave/cli.v1"
 )
@@ -95,12 +96,12 @@ var (
 	}
 	aliasFlag = cli.StringFlag{
 		Name:  "alias",
-		Usage: "Comma separated aliases for function and event renaming, e.g. foo=bar",
+		Usage: "Comma separated aliases for function and event renaming, e.g. original1=alias1, original2=alias2",
 	}
 )
 
 func init() {
-	app = utils.NewApp(gitCommit, gitDate, "ethereum checkpoint helper tool")
+	app = flags.NewApp(gitCommit, gitDate, "ethereum checkpoint helper tool")
 	app.Flags = []cli.Flag{
 		abiFlag,
 		binFlag,
@@ -117,7 +118,7 @@ func init() {
 		aliasFlag,
 	}
 	app.Action = utils.MigrateFlags(abigen)
-	cli.CommandHelpTemplate = utils.OriginCommandHelpTemplate
+	cli.CommandHelpTemplate = flags.OriginCommandHelpTemplate
 }
 
 func abigen(c *cli.Context) error {
@@ -236,7 +237,11 @@ func abigen(c *cli.Context) error {
 			nameParts := strings.Split(name, ":")
 			types = append(types, nameParts[len(nameParts)-1])
 
-			libPattern := crypto.Keccak256Hash([]byte(name)).String()[2:36]
+			// Derive the library placeholder which is a 34 character prefix of the
+			// hex encoding of the keccak256 hash of the fully qualified library name.
+			// Note that the fully qualified library name is the path of its source
+			// file and the library name separated by ":".
+			libPattern := crypto.Keccak256Hash([]byte(name)).String()[2:36] // the first 2 chars are 0x
 			libs[libPattern] = nameParts[len(nameParts)-1]
 		}
 	}

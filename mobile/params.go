@@ -19,10 +19,7 @@
 package geth
 
 import (
-	"encoding/json"
-
-	"github.com/tenderly/bsc/core"
-	"github.com/tenderly/bsc/p2p/discv5"
+	"github.com/tenderly/bsc/p2p/enode"
 	"github.com/tenderly/bsc/params"
 )
 
@@ -32,39 +29,16 @@ func MainnetGenesis() string {
 	return ""
 }
 
-// RopstenGenesis returns the JSON spec to use for the Ropsten test network.
-func RopstenGenesis() string {
-	enc, err := json.Marshal(core.DefaultRopstenGenesisBlock())
-	if err != nil {
-		panic(err)
-	}
-	return string(enc)
-}
-
-// RinkebyGenesis returns the JSON spec to use for the Rinkeby test network
-func RinkebyGenesis() string {
-	enc, err := json.Marshal(core.DefaultRinkebyGenesisBlock())
-	if err != nil {
-		panic(err)
-	}
-	return string(enc)
-}
-
-// GoerliGenesis returns the JSON spec to use for the Goerli test network
-func GoerliGenesis() string {
-	enc, err := json.Marshal(core.DefaultGoerliGenesisBlock())
-	if err != nil {
-		panic(err)
-	}
-	return string(enc)
-}
-
 // FoundationBootnodes returns the enode URLs of the P2P bootstrap nodes operated
 // by the foundation running the V5 discovery protocol.
 func FoundationBootnodes() *Enodes {
-	nodes := &Enodes{nodes: make([]*discv5.Node, len(params.DiscoveryV5Bootnodes))}
-	for i, url := range params.DiscoveryV5Bootnodes {
-		nodes.nodes[i] = discv5.MustParseNode(url)
+	nodes := &Enodes{nodes: make([]*enode.Node, len(params.MainnetBootnodes))}
+	for i, url := range params.MainnetBootnodes {
+		var err error
+		nodes.nodes[i], err = enode.Parse(enode.ValidSchemes, url)
+		if err != nil {
+			panic("invalid node URL: " + err.Error())
+		}
 	}
 	return nodes
 }

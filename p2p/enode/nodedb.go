@@ -26,13 +26,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/tenderly/bsc/rlp"
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/syndtr/goleveldb/leveldb/errors"
 	"github.com/syndtr/goleveldb/leveldb/iterator"
 	"github.com/syndtr/goleveldb/leveldb/opt"
 	"github.com/syndtr/goleveldb/leveldb/storage"
 	"github.com/syndtr/goleveldb/leveldb/util"
+	"github.com/tenderly/bsc/common/gopool"
+	"github.com/tenderly/bsc/rlp"
 )
 
 // Keys in the node database.
@@ -59,6 +60,10 @@ const (
 	dbNodeExpiration = 24 * time.Hour // Time after which an unseen node should be dropped.
 	dbCleanupCycle   = time.Hour      // Time period for running the expiration task.
 	dbVersion        = 9
+)
+
+var (
+	errInvalidIP = errors.New("invalid IP")
 )
 
 var zeroIP = make(net.IP, 16)
@@ -163,7 +168,7 @@ func splitNodeItemKey(key []byte) (id ID, ip net.IP, field string) {
 	}
 	key = key[len(dbDiscoverRoot)+1:]
 	// Split out the IP.
-	ip = net.IP(key[:16])
+	ip = key[:16]
 	if ip4 := ip.To4(); ip4 != nil {
 		ip = ip4
 	}
@@ -299,7 +304,11 @@ func deleteRange(db *leveldb.DB, prefix []byte) {
 // convergence, it's simpler to "ensure" the correct state when an appropriate
 // condition occurs (i.e. a successful bonding), and discard further events.
 func (db *DB) ensureExpirer() {
-	db.runner.Do(func() { go db.expirer() })
+	db.runner.Do(func() {
+		gopool.Submit(func() {
+			db.expirer()
+		})
+	})
 }
 
 // expirer should be started in a go routine, and is responsible for looping ad
@@ -359,16 +368,25 @@ func (db *DB) expireNodes() {
 // LastPingReceived retrieves the time of the last ping packet received from
 // a remote node.
 func (db *DB) LastPingReceived(id ID, ip net.IP) time.Time {
+	if ip = ip.To16(); ip == nil {
+		return time.Time{}
+	}
 	return time.Unix(db.fetchInt64(nodeItemKey(id, ip, dbNodePing)), 0)
 }
 
 // UpdateLastPingReceived updates the last time we tried contacting a remote node.
 func (db *DB) UpdateLastPingReceived(id ID, ip net.IP, instance time.Time) error {
+	if ip = ip.To16(); ip == nil {
+		return errInvalidIP
+	}
 	return db.storeInt64(nodeItemKey(id, ip, dbNodePing), instance.Unix())
 }
 
 // LastPongReceived retrieves the time of the last successful pong from remote node.
 func (db *DB) LastPongReceived(id ID, ip net.IP) time.Time {
+	if ip = ip.To16(); ip == nil {
+		return time.Time{}
+	}
 	// Launch expirer
 	db.ensureExpirer()
 	return time.Unix(db.fetchInt64(nodeItemKey(id, ip, dbNodePong)), 0)
@@ -376,32 +394,52 @@ func (db *DB) LastPongReceived(id ID, ip net.IP) time.Time {
 
 // UpdateLastPongReceived updates the last pong time of a node.
 func (db *DB) UpdateLastPongReceived(id ID, ip net.IP, instance time.Time) error {
+	if ip = ip.To16(); ip == nil {
+		return errInvalidIP
+	}
 	return db.storeInt64(nodeItemKey(id, ip, dbNodePong), instance.Unix())
 }
 
 // FindFails retrieves the number of findnode failures since bonding.
 func (db *DB) FindFails(id ID, ip net.IP) int {
+	if ip = ip.To16(); ip == nil {
+		return 0
+	}
 	return int(db.fetchInt64(nodeItemKey(id, ip, dbNodeFindFails)))
 }
 
 // UpdateFindFails updates the number of findnode failures since bonding.
 func (db *DB) UpdateFindFails(id ID, ip net.IP, fails int) error {
+	if ip = ip.To16(); ip == nil {
+		return errInvalidIP
+	}
 	return db.storeInt64(nodeItemKey(id, ip, dbNodeFindFails), int64(fails))
 }
 
 // FindFailsV5 retrieves the discv5 findnode failure counter.
 func (db *DB) FindFailsV5(id ID, ip net.IP) int {
+	if ip = ip.To16(); ip == nil {
+		return 0
+	}
 	return int(db.fetchInt64(v5Key(id, ip, dbNodeFindFails)))
 }
 
 // UpdateFindFailsV5 stores the discv5 findnode failure counter.
 func (db *DB) UpdateFindFailsV5(id ID, ip net.IP, fails int) error {
+	if ip = ip.To16(); ip == nil {
+		return errInvalidIP
+	}
 	return db.storeInt64(v5Key(id, ip, dbNodeFindFails), int64(fails))
 }
 
-// LocalSeq retrieves the local record sequence counter.
+// localSeq retrieves the local record sequence counter, defaulting to the current
+// timestamp if no previous exists. This ensures that wiping all data associated
+// with a node (apart from its key) will not generate already used sequence nums.
 func (db *DB) localSeq(id ID) uint64 {
-	return db.fetchUint64(localItemKey(id, dbLocalSeq))
+	if seq := db.fetchUint64(localItemKey(id, dbLocalSeq)); seq > 0 {
+		return seq
+	}
+	return nowMilliseconds()
 }
 
 // storeLocalSeq stores the local record sequence counter.

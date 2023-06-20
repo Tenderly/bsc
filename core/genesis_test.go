@@ -30,17 +30,6 @@ import (
 	"github.com/tenderly/bsc/params"
 )
 
-func TestDefaultGenesisBlock(t *testing.T) {
-	block := DefaultGenesisBlock().ToBlock(nil)
-	if block.Hash() != params.MainnetGenesisHash {
-		t.Errorf("wrong mainnet genesis hash, got %v, want %v", block.Hash(), params.MainnetGenesisHash)
-	}
-	block = DefaultRopstenGenesisBlock().ToBlock(nil)
-	if block.Hash() != params.RopstenGenesisHash {
-		t.Errorf("wrong ropsten genesis hash, got %v, want %v", block.Hash(), params.RopstenGenesisHash)
-	}
-}
-
 func TestSetupGenesis(t *testing.T) {
 	var (
 		customghash = common.HexToHash("0x89c99d90b79719238d2645c7642f2c9295246e80775b38cfd162b696817fbd50")
@@ -77,15 +66,6 @@ func TestSetupGenesis(t *testing.T) {
 			wantConfig: params.MainnetChainConfig,
 		},
 		{
-			name: "mainnet block in DB, genesis == nil",
-			fn: func(db ethdb.Database) (*params.ChainConfig, common.Hash, error) {
-				DefaultGenesisBlock().MustCommit(db)
-				return SetupGenesisBlock(db, nil)
-			},
-			wantHash:   params.MainnetGenesisHash,
-			wantConfig: params.MainnetChainConfig,
-		},
-		{
 			name: "custom block in DB, genesis == nil",
 			fn: func(db ethdb.Database) (*params.ChainConfig, common.Hash, error) {
 				customg.MustCommit(db)
@@ -93,16 +73,6 @@ func TestSetupGenesis(t *testing.T) {
 			},
 			wantHash:   customghash,
 			wantConfig: customg.Config,
-		},
-		{
-			name: "custom block in DB, genesis == ropsten",
-			fn: func(db ethdb.Database) (*params.ChainConfig, common.Hash, error) {
-				customg.MustCommit(db)
-				return SetupGenesisBlock(db, DefaultRopstenGenesisBlock())
-			},
-			wantErr:    &GenesisMismatchError{Stored: customghash, New: params.RopstenGenesisHash},
-			wantHash:   params.RopstenGenesisHash,
-			wantConfig: params.RopstenChainConfig,
 		},
 		{
 			name: "compatible config in DB",
@@ -120,7 +90,7 @@ func TestSetupGenesis(t *testing.T) {
 				// Advance to block #4, past the homestead transition block of customg.
 				genesis := oldcustomg.MustCommit(db)
 
-				bc, _ := NewBlockChain(db, nil, oldcustomg.Config, ethash.NewFullFaker(), vm.Config{}, nil)
+				bc, _ := NewBlockChain(db, nil, oldcustomg.Config, ethash.NewFullFaker(), vm.Config{}, nil, nil)
 				defer bc.Stop()
 
 				blocks, _ := GenerateChain(oldcustomg.Config, genesis, ethash.NewFaker(), db, 4, nil)
@@ -160,5 +130,108 @@ func TestSetupGenesis(t *testing.T) {
 				t.Errorf("%s: block in DB has hash %s, want %s", test.name, stored.Hash(), test.wantHash)
 			}
 		}
+	}
+}
+
+// TestGenesisHashes checks the congruity of default genesis data to
+// corresponding hardcoded genesis hash values.
+func TestGenesisHashes(t *testing.T) {
+	for i, c := range []struct {
+		genesis *Genesis
+		want    common.Hash
+	}{
+		{DefaultGenesisBlock(), params.MainnetGenesisHash},
+	} {
+		// Test via MustCommit
+		if have := c.genesis.MustCommit(rawdb.NewMemoryDatabase()).Hash(); have != c.want {
+			t.Errorf("case: %d a), want: %s, got: %s", i, c.want.Hex(), have.Hex())
+		}
+		// Test via ToBlock
+		if have := c.genesis.ToBlock(nil).Hash(); have != c.want {
+			t.Errorf("case: %d a), want: %s, got: %s", i, c.want.Hex(), have.Hex())
+		}
+	}
+}
+
+func TestGenesis_Commit(t *testing.T) {
+	genesis := &Genesis{
+		BaseFee: big.NewInt(params.InitialBaseFee),
+		Config:  params.TestChainConfig,
+		// difficulty is nil
+	}
+
+	db := rawdb.NewMemoryDatabase()
+	genesisBlock, err := genesis.Commit(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if genesis.Difficulty != nil {
+		t.Fatalf("assumption wrong")
+	}
+
+	// This value should have been set as default in the ToBlock method.
+	if genesisBlock.Difficulty().Cmp(params.GenesisDifficulty) != 0 {
+		t.Errorf("assumption wrong: want: %d, got: %v", params.GenesisDifficulty, genesisBlock.Difficulty())
+	}
+
+	// Expect the stored total difficulty to be the difficulty of the genesis block.
+	stored := rawdb.ReadTd(db, genesisBlock.Hash(), genesisBlock.NumberU64())
+
+	if stored.Cmp(genesisBlock.Difficulty()) != 0 {
+		t.Errorf("inequal difficulty; stored: %v, genesisBlock: %v", stored, genesisBlock.Difficulty())
+	}
+}
+
+func TestConfigOrDefault(t *testing.T) {
+	defaultGenesis := DefaultGenesisBlock()
+	if defaultGenesis.Config.PlanckBlock != nil {
+		t.Errorf("initial config should have PlanckBlock = nil, but instead PlanckBlock = %v", defaultGenesis.Config.PlanckBlock)
+	}
+	gHash := params.BSCGenesisHash
+	config := defaultGenesis.configOrDefault(gHash)
+
+	if config.ChainID.Cmp(params.MainnetChainConfig.ChainID) != 0 {
+		t.Errorf("ChainID of resulting config should be %v, but is %v instead", params.BSCChainConfig.ChainID, config.ChainID)
+	}
+
+	if config.HomesteadBlock.Cmp(params.MainnetChainConfig.HomesteadBlock) != 0 {
+		t.Errorf("resulting config should have HomesteadBlock = %v, but instead is %v", params.MainnetChainConfig, config.HomesteadBlock)
+	}
+
+	if config.PlanckBlock == nil {
+		t.Errorf("resulting config should have PlanckBlock = %v , but instead is nil", params.BSCChainConfig.PlanckBlock)
+	}
+
+	if config.PlanckBlock.Cmp(params.BSCChainConfig.PlanckBlock) != 0 {
+		t.Errorf("resulting config should have PlanckBlock = %v , but instead is %v", params.BSCChainConfig.PlanckBlock, config.PlanckBlock)
+	}
+}
+
+func TestSetDefaultBlockValues(t *testing.T) {
+	genesis := &Genesis{Config: &params.ChainConfig{ChainID: big.NewInt(66), HomesteadBlock: big.NewInt(11)}}
+	genesis.setDefaultBlockValues(params.BSCChainConfig)
+
+	// Make sure the non-nil block was not modified
+	if genesis.Config.HomesteadBlock.Cmp(big.NewInt(11)) != 0 {
+		t.Errorf("Homestead block should not have been modified. HomesteadBlock = %v", genesis.Config.HomesteadBlock)
+	}
+
+	// Spot check a few blocks
+	if genesis.Config.NielsBlock.Cmp(params.BSCChainConfig.NielsBlock) != 0 {
+		t.Errorf("Niels block not matching: in genesis = %v , in defaultConfig = %v", genesis.Config.NielsBlock, params.BSCChainConfig.NielsBlock)
+	}
+
+	if genesis.Config.NanoBlock.Cmp(params.BSCChainConfig.NanoBlock) != 0 {
+		t.Errorf("Nano block not matching: in genesis = %v , in defaultConfig = %v", genesis.Config.NanoBlock, params.BSCChainConfig.NanoBlock)
+	}
+
+	if genesis.Config.PlanckBlock.Cmp(params.BSCChainConfig.PlanckBlock) != 0 {
+		t.Errorf("Nano block not matching: in genesis = %v , in defaultConfig = %v", genesis.Config.PlanckBlock, params.BSCChainConfig.PlanckBlock)
+	}
+
+	// Lastly make sure non-block fields such as ChainID have not been modified
+	if genesis.Config.ChainID.Cmp(big.NewInt(66)) != 0 {
+		t.Errorf("ChainID should not have been modified. ChainID = %v", genesis.Config.ChainID)
 	}
 }

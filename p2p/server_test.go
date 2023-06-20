@@ -18,6 +18,7 @@ package p2p
 
 import (
 	"crypto/ecdsa"
+	"crypto/sha256"
 	"errors"
 	"io"
 	"math/rand"
@@ -31,28 +32,27 @@ import (
 	"github.com/tenderly/bsc/log"
 	"github.com/tenderly/bsc/p2p/enode"
 	"github.com/tenderly/bsc/p2p/enr"
-	"golang.org/x/crypto/sha3"
+	"github.com/tenderly/bsc/p2p/rlpx"
 )
 
 type testTransport struct {
-	rpub *ecdsa.PublicKey
-	*rlpx
-
+	*rlpxTransport
+	rpub     *ecdsa.PublicKey
 	closeErr error
 }
 
-func newTestTransport(rpub *ecdsa.PublicKey, fd net.Conn) transport {
-	wrapped := newRLPX(fd).(*rlpx)
-	wrapped.rw = newRLPXFrameRW(fd, secrets{
-		MAC:        zero16,
-		AES:        zero16,
-		IngressMAC: sha3.NewLegacyKeccak256(),
-		EgressMAC:  sha3.NewLegacyKeccak256(),
+func newTestTransport(rpub *ecdsa.PublicKey, fd net.Conn, dialDest *ecdsa.PublicKey) transport {
+	wrapped := newRLPX(fd, dialDest).(*rlpxTransport)
+	wrapped.conn.InitWithSecrets(rlpx.Secrets{
+		AES:        make([]byte, 16),
+		MAC:        make([]byte, 16),
+		EgressMAC:  sha256.New(),
+		IngressMAC: sha256.New(),
 	})
-	return &testTransport{rpub: rpub, rlpx: wrapped}
+	return &testTransport{rpub: rpub, rlpxTransport: wrapped}
 }
 
-func (c *testTransport) doEncHandshake(prv *ecdsa.PrivateKey, dialDest *ecdsa.PublicKey) (*ecdsa.PublicKey, error) {
+func (c *testTransport) doEncHandshake(prv *ecdsa.PrivateKey) (*ecdsa.PublicKey, error) {
 	return c.rpub, nil
 }
 
@@ -62,7 +62,7 @@ func (c *testTransport) doProtoHandshake(our *protoHandshake) (*protoHandshake, 
 }
 
 func (c *testTransport) close(err error) {
-	c.rlpx.fd.Close()
+	c.conn.Close()
 	c.closeErr = err
 }
 
@@ -76,9 +76,11 @@ func startTestServer(t *testing.T, remoteKey *ecdsa.PublicKey, pf func(*Peer)) *
 		Logger:      testlog.Logger(t, log.LvlTrace),
 	}
 	server := &Server{
-		Config:       config,
-		newPeerHook:  pf,
-		newTransport: func(fd net.Conn) transport { return newTestTransport(remoteKey, fd) },
+		Config:      config,
+		newPeerHook: pf,
+		newTransport: func(fd net.Conn, dialDest *ecdsa.PublicKey) transport {
+			return newTestTransport(remoteKey, fd, dialDest)
+		},
 	}
 	if err := server.Start(); err != nil {
 		t.Fatalf("Could not start server: %v", err)
@@ -201,6 +203,29 @@ func TestServerDial(t *testing.T) {
 	}
 }
 
+func TestServerStopTimeout(t *testing.T) {
+	srv := &Server{Config: Config{
+		PrivateKey:  newkey(),
+		MaxPeers:    1,
+		NoDiscovery: true,
+		Logger:      testlog.Logger(t, log.LvlTrace).New("server", "1"),
+	}}
+	srv.Start()
+	srv.loopWG.Add(1)
+
+	stopChan := make(chan struct{})
+	go func() {
+		srv.Stop()
+		close(stopChan)
+	}()
+
+	select {
+	case <-stopChan:
+	case <-time.After(10 * time.Second):
+		t.Error("server should be shutdown in 10 seconds")
+	}
+}
+
 // This test checks that RemovePeer disconnects the peer if it is connected.
 func TestServerRemovePeerDisconnect(t *testing.T) {
 	srv1 := &Server{Config: Config{
@@ -253,7 +278,7 @@ func TestServerAtCap(t *testing.T) {
 
 	newconn := func(id enode.ID) *conn {
 		fd, _ := net.Pipe()
-		tx := newTestTransport(&trustedNode.PublicKey, fd)
+		tx := newTestTransport(&trustedNode.PublicKey, fd, nil)
 		node := enode.SignNull(new(enr.Record), id)
 		return &conn{fd: fd, transport: tx, flags: inboundConn, node: node, cont: make(chan error)}
 	}
@@ -321,7 +346,7 @@ func TestServerPeerLimits(t *testing.T) {
 			Protocols:   []Protocol{discard},
 			Logger:      testlog.Logger(t, log.LvlTrace),
 		},
-		newTransport: func(fd net.Conn) transport { return tp },
+		newTransport: func(fd net.Conn, dialDest *ecdsa.PublicKey) transport { return tp },
 	}
 	if err := srv.Start(); err != nil {
 		t.Fatalf("couldn't start server: %v", err)
@@ -368,6 +393,8 @@ func TestServerSetupConn(t *testing.T) {
 		clientkey, srvkey = newkey(), newkey()
 		clientpub         = &clientkey.PublicKey
 		srvpub            = &srvkey.PublicKey
+		fooErr            = errors.New("foo")
+		readErr           = errors.New("read error")
 	)
 	tests := []struct {
 		dontstart bool
@@ -385,17 +412,10 @@ func TestServerSetupConn(t *testing.T) {
 			wantCloseErr: errServerStopped,
 		},
 		{
-			tt:           &setupTransport{pubkey: clientpub, encHandshakeErr: errors.New("read error")},
+			tt:           &setupTransport{pubkey: clientpub, encHandshakeErr: readErr},
 			flags:        inboundConn,
 			wantCalls:    "doEncHandshake,close,",
-			wantCloseErr: errors.New("read error"),
-		},
-		{
-			tt:           &setupTransport{pubkey: clientpub},
-			dialDest:     enode.NewV4(&newkey().PublicKey, nil, 0, 0),
-			flags:        dynDialedConn,
-			wantCalls:    "doEncHandshake,close,",
-			wantCloseErr: DiscUnexpectedIdentity,
+			wantCloseErr: readErr,
 		},
 		{
 			tt:           &setupTransport{pubkey: clientpub, phs: protoHandshake{ID: randomID().Bytes()}},
@@ -405,11 +425,11 @@ func TestServerSetupConn(t *testing.T) {
 			wantCloseErr: DiscUnexpectedIdentity,
 		},
 		{
-			tt:           &setupTransport{pubkey: clientpub, protoHandshakeErr: errors.New("foo")},
+			tt:           &setupTransport{pubkey: clientpub, protoHandshakeErr: fooErr},
 			dialDest:     enode.NewV4(clientpub, nil, 0, 0),
 			flags:        dynDialedConn,
 			wantCalls:    "doEncHandshake,doProtoHandshake,close,",
-			wantCloseErr: errors.New("foo"),
+			wantCloseErr: fooErr,
 		},
 		{
 			tt:           &setupTransport{pubkey: srvpub, phs: protoHandshake{ID: crypto.FromECDSAPub(srvpub)[1:]}},
@@ -437,7 +457,7 @@ func TestServerSetupConn(t *testing.T) {
 			}
 			srv := &Server{
 				Config:       cfg,
-				newTransport: func(fd net.Conn) transport { return test.tt },
+				newTransport: func(fd net.Conn, dialDest *ecdsa.PublicKey) transport { return test.tt },
 				log:          cfg.Logger,
 			}
 			if !test.dontstart {
@@ -448,7 +468,7 @@ func TestServerSetupConn(t *testing.T) {
 			}
 			p1, _ := net.Pipe()
 			srv.SetupConn(p1, test.flags, test.dialDest)
-			if !reflect.DeepEqual(test.tt.closeErr, test.wantCloseErr) {
+			if !errors.Is(test.tt.closeErr, test.wantCloseErr) {
 				t.Errorf("test %d: close error mismatch: got %q, want %q", i, test.tt.closeErr, test.wantCloseErr)
 			}
 			if test.tt.calls != test.wantCalls {
@@ -468,7 +488,7 @@ type setupTransport struct {
 	closeErr error
 }
 
-func (c *setupTransport) doEncHandshake(prv *ecdsa.PrivateKey, dialDest *ecdsa.PublicKey) (*ecdsa.PublicKey, error) {
+func (c *setupTransport) doEncHandshake(prv *ecdsa.PrivateKey) (*ecdsa.PublicKey, error) {
 	c.calls += "doEncHandshake,"
 	return c.pubkey, c.encHandshakeErr
 }
@@ -522,9 +542,9 @@ func TestServerInboundThrottle(t *testing.T) {
 			Protocols:   []Protocol{discard},
 			Logger:      testlog.Logger(t, log.LvlTrace),
 		},
-		newTransport: func(fd net.Conn) transport {
+		newTransport: func(fd net.Conn, dialDest *ecdsa.PublicKey) transport {
 			newTransportCalled <- struct{}{}
-			return newRLPX(fd)
+			return newRLPX(fd, dialDest)
 		},
 		listenFunc: func(network, laddr string) (net.Listener, error) {
 			fakeAddr := &net.TCPAddr{IP: net.IP{95, 33, 21, 2}, Port: 4444}

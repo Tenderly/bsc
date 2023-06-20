@@ -35,6 +35,16 @@ func NewBigInt(x int64) *BigInt {
 	return &BigInt{big.NewInt(x)}
 }
 
+// NewBigIntFromString allocates and returns a new BigInt set to x
+// interpreted in the provided base.
+func NewBigIntFromString(x string, base int) *BigInt {
+	b, success := new(big.Int).SetString(x, base)
+	if !success {
+		return nil
+	}
+	return &BigInt{b}
+}
+
 // GetBytes returns the absolute value of x as a big-endian byte slice.
 func (bi *BigInt) GetBytes() []byte {
 	return bi.bigint.Bytes()
@@ -67,7 +77,6 @@ func (bi *BigInt) SetInt64(x int64) {
 //	-1 if x <  0
 //	 0 if x == 0
 //	+1 if x >  0
-//
 func (bi *BigInt) Sign() int {
 	return bi.bigint.Sign()
 }

@@ -27,7 +27,7 @@ import (
 	"strings"
 
 	"github.com/tenderly/bsc/common"
-	"github.com/tenderly/bsc/core"
+	"github.com/tenderly/bsc/core/types"
 	"github.com/tenderly/bsc/log"
 	"github.com/tenderly/bsc/params"
 )
@@ -44,6 +44,18 @@ var (
 	ErrLocalIncompatibleOrStale = errors.New("local incompatible or needs update")
 )
 
+// Blockchain defines all necessary method to build a forkID.
+type Blockchain interface {
+	// Config retrieves the chain's fork configuration.
+	Config() *params.ChainConfig
+
+	// Genesis retrieves the chain's genesis block.
+	Genesis() *types.Block
+
+	// CurrentHeader retrieves the current head header of the canonical chain.
+	CurrentHeader() *types.Header
+}
+
 // ID is a fork identifier as defined by EIP-2124.
 type ID struct {
 	Hash [4]byte // CRC32 checksum of the genesis block and passed fork block numbers
@@ -53,19 +65,8 @@ type ID struct {
 // Filter is a fork id filter to validate a remotely advertised ID.
 type Filter func(id ID) error
 
-// NewID calculates the Ethereum fork ID from the chain config and head.
-func NewID(chain *core.BlockChain) ID {
-	return newID(
-		chain.Config(),
-		chain.Genesis().Hash(),
-		chain.CurrentHeader().Number.Uint64(),
-	)
-}
-
-// newID is the internal version of NewID, which takes extracted values as its
-// arguments instead of a chain. The reason is to allow testing the IDs without
-// having to simulate an entire blockchain.
-func newID(config *params.ChainConfig, genesis common.Hash, head uint64) ID {
+// NewID calculates the Ethereum fork ID from the chain config, genesis hash, and head.
+func NewID(config *params.ChainConfig, genesis common.Hash, head uint64) ID {
 	// Calculate the starting checksum from the genesis hash
 	hash := crc32.ChecksumIEEE(genesis[:])
 
@@ -83,9 +84,34 @@ func newID(config *params.ChainConfig, genesis common.Hash, head uint64) ID {
 	return ID{Hash: checksumToBytes(hash), Next: next}
 }
 
+// NextForkHash calculates the forkHash from genesis to the next fork block number
+func NextForkHash(config *params.ChainConfig, genesis common.Hash, head uint64) [4]byte {
+	// Calculate the starting checksum from the genesis hash
+	hash := crc32.ChecksumIEEE(genesis[:])
+	// Calculate the current fork checksum and the next fork block
+	for _, fork := range gatherForks(config) {
+		if fork > head {
+			// Checksum the previous hash and nextFokr number and return
+			return checksumToBytes(checksumUpdate(hash, fork))
+		}
+		// Fork already passed, checksum the previous hash and the fork number
+		hash = checksumUpdate(hash, fork)
+	}
+	return checksumToBytes(hash)
+}
+
+// NewIDWithChain calculates the Ethereum fork ID from an existing chain instance.
+func NewIDWithChain(chain Blockchain) ID {
+	return NewID(
+		chain.Config(),
+		chain.Genesis().Hash(),
+		chain.CurrentHeader().Number.Uint64(),
+	)
+}
+
 // NewFilter creates a filter that returns if a fork ID should be rejected or not
 // based on the local chain's status.
-func NewFilter(chain *core.BlockChain) Filter {
+func NewFilter(chain Blockchain) Filter {
 	return newFilter(
 		chain.Config(),
 		chain.Genesis().Hash(),
@@ -145,7 +171,7 @@ func newFilter(config *params.ChainConfig, genesis common.Hash, headfn func() ui
 		for i, fork := range forks {
 			// If our head is beyond this fork, continue to the next (we have a dummy
 			// fork of maxuint64 as the last item to always fail this check eventually).
-			if head > fork {
+			if head >= fork {
 				continue
 			}
 			// Found the first unpassed fork block, check if our current state matches
@@ -223,7 +249,7 @@ func gatherForks(config *params.ChainConfig) []uint64 {
 			forks = append(forks, rule.Uint64())
 		}
 	}
-	// Sort the fork block numbers to permit chronologival XOR
+	// Sort the fork block numbers to permit chronological XOR
 	for i := 0; i < len(forks); i++ {
 		for j := i + 1; j < len(forks); j++ {
 			if forks[i] > forks[j] {

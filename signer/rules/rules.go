@@ -24,9 +24,9 @@ import (
 
 	"github.com/dop251/goja"
 	"github.com/tenderly/bsc/internal/ethapi"
+	"github.com/tenderly/bsc/internal/jsre/deps"
 	"github.com/tenderly/bsc/log"
 	"github.com/tenderly/bsc/signer/core"
-	"github.com/tenderly/bsc/signer/rules/deps"
 	"github.com/tenderly/bsc/signer/storage"
 )
 

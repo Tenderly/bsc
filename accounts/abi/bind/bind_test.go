@@ -199,7 +199,8 @@ var bindTests = []struct {
 				{"type":"event","name":"indexed","inputs":[{"name":"addr","type":"address","indexed":true},{"name":"num","type":"int256","indexed":true}]},
 				{"type":"event","name":"mixed","inputs":[{"name":"addr","type":"address","indexed":true},{"name":"num","type":"int256"}]},
 				{"type":"event","name":"anonymous","anonymous":true,"inputs":[]},
-				{"type":"event","name":"dynamic","inputs":[{"name":"idxStr","type":"string","indexed":true},{"name":"idxDat","type":"bytes","indexed":true},{"name":"str","type":"string"},{"name":"dat","type":"bytes"}]}
+				{"type":"event","name":"dynamic","inputs":[{"name":"idxStr","type":"string","indexed":true},{"name":"idxDat","type":"bytes","indexed":true},{"name":"str","type":"string"},{"name":"dat","type":"bytes"}]},
+				{"type":"event","name":"unnamed","inputs":[{"name":"","type":"uint256","indexed": true},{"name":"","type":"uint256","indexed":true}]}
 			]
 		`},
 		`
@@ -249,6 +250,12 @@ var bindTests = []struct {
 			 fmt.Println(event.Addr)          // Make sure the reconstructed indexed fields are present
 
 			 fmt.Println(res, str, dat, hash, err)
+
+			 oit, err := e.FilterUnnamed(nil, []*big.Int{}, []*big.Int{})
+
+			 arg0  := oit.Event.Arg0    // Make sure unnamed arguments are handled correctly
+			 arg1  := oit.Event.Arg1    // Make sure unnamed arguments are handled correctly
+			 fmt.Println(arg0, arg1)
 		 }
 		 // Run a tiny reflection test to ensure disallowed methods don't appear
 		 if _, ok := reflect.TypeOf(&EventChecker{}).MethodByName("FilterAnonymous"); ok {
@@ -289,9 +296,9 @@ var bindTests = []struct {
 		`
 			// Generate a new random account and a funded simulator
 			key, _ := crypto.GenerateKey()
-			auth := bind.NewKeyedTransactor(key)
+			auth, _ := bind.NewKeyedTransactorWithChainID(key, big.NewInt(1337))
 
-			sim := backends.NewSimulatedBackend(core.GenesisAlloc{auth.From: {Balance: big.NewInt(10000000000)}}, 10000000)
+			sim := backends.NewSimulatedBackend(core.GenesisAlloc{auth.From: {Balance: big.NewInt(10000000000000000)}}, 10000000)
 			defer sim.Close()
 
 			// Deploy an interaction tester contract and call a transaction on it
@@ -344,9 +351,9 @@ var bindTests = []struct {
 		`
 			// Generate a new random account and a funded simulator
 			key, _ := crypto.GenerateKey()
-			auth := bind.NewKeyedTransactor(key)
+			auth, _ := bind.NewKeyedTransactorWithChainID(key, big.NewInt(1337))
 
-			sim := backends.NewSimulatedBackend(core.GenesisAlloc{auth.From: {Balance: big.NewInt(10000000000)}}, 10000000)
+			sim := backends.NewSimulatedBackend(core.GenesisAlloc{auth.From: {Balance: big.NewInt(10000000000000000)}}, 10000000)
 			defer sim.Close()
 
 			// Deploy a tuple tester contract and execute a structured call on it
@@ -390,9 +397,9 @@ var bindTests = []struct {
 		`
 			// Generate a new random account and a funded simulator
 			key, _ := crypto.GenerateKey()
-			auth := bind.NewKeyedTransactor(key)
+			auth, _ := bind.NewKeyedTransactorWithChainID(key, big.NewInt(1337))
 
-			sim := backends.NewSimulatedBackend(core.GenesisAlloc{auth.From: {Balance: big.NewInt(10000000000)}}, 10000000)
+			sim := backends.NewSimulatedBackend(core.GenesisAlloc{auth.From: {Balance: big.NewInt(10000000000000000)}}, 10000000)
 			defer sim.Close()
 
 			// Deploy a tuple tester contract and execute a structured call on it
@@ -448,9 +455,9 @@ var bindTests = []struct {
 		`
 			// Generate a new random account and a funded simulator
 			key, _ := crypto.GenerateKey()
-			auth := bind.NewKeyedTransactor(key)
+			auth, _ := bind.NewKeyedTransactorWithChainID(key, big.NewInt(1337))
 
-			sim := backends.NewSimulatedBackend(core.GenesisAlloc{auth.From: {Balance: big.NewInt(10000000000)}}, 10000000)
+			sim := backends.NewSimulatedBackend(core.GenesisAlloc{auth.From: {Balance: big.NewInt(10000000000000000)}}, 10000000)
 			defer sim.Close()
 
 			// Deploy a slice tester contract and execute a n array call on it
@@ -496,9 +503,9 @@ var bindTests = []struct {
 		`
 			// Generate a new random account and a funded simulator
 			key, _ := crypto.GenerateKey()
-			auth := bind.NewKeyedTransactor(key)
+			auth, _ := bind.NewKeyedTransactorWithChainID(key, big.NewInt(1337))
 
-			sim := backends.NewSimulatedBackend(core.GenesisAlloc{auth.From: {Balance: big.NewInt(10000000000)}}, 10000000)
+			sim := backends.NewSimulatedBackend(core.GenesisAlloc{auth.From: {Balance: big.NewInt(10000000000000000)}}, 10000000)
 			defer sim.Close()
 
 			// Deploy a default method invoker contract and execute its default method
@@ -515,6 +522,70 @@ var bindTests = []struct {
 				t.Fatalf("Failed to call address retriever: %v", err)
 			} else if (caller != auth.From) {
 				t.Fatalf("Address mismatch: have %v, want %v", caller, auth.From)
+			}
+		`,
+		nil,
+		nil,
+		nil,
+		nil,
+	},
+	// Tests that structs are correctly unpacked
+	{
+
+		`Structs`,
+		`
+		pragma solidity ^0.6.5;
+			pragma experimental ABIEncoderV2;
+			contract Structs {
+				struct A {
+					bytes32 B;
+				}
+				
+				function F() public view returns (A[] memory a, uint256[] memory c, bool[] memory d) {
+					A[] memory a = new A[](2);
+					a[0].B = bytes32(uint256(1234) << 96);
+					uint256[] memory c;
+					bool[] memory d;
+					return (a, c, d);
+				}
+			
+				function G() public view returns (A[] memory a) {
+					A[] memory a = new A[](2);
+					a[0].B = bytes32(uint256(1234) << 96);
+					return a;
+				}
+			}
+		`,
+		[]string{`608060405234801561001057600080fd5b50610278806100206000396000f3fe608060405234801561001057600080fd5b50600436106100365760003560e01c806328811f591461003b5780636fecb6231461005b575b600080fd5b610043610070565b604051610052939291906101a0565b60405180910390f35b6100636100d6565b6040516100529190610186565b604080516002808252606082810190935282918291829190816020015b610095610131565b81526020019060019003908161008d575050805190915061026960611b9082906000906100be57fe5b60209081029190910101515293606093508392509050565b6040805160028082526060828101909352829190816020015b6100f7610131565b8152602001906001900390816100ef575050805190915061026960611b90829060009061012057fe5b602090810291909101015152905090565b60408051602081019091526000815290565b815260200190565b6000815180845260208085019450808401835b8381101561017b578151518752958201959082019060010161015e565b509495945050505050565b600060208252610199602083018461014b565b9392505050565b6000606082526101b3606083018661014b565b6020838203818501528186516101c98185610239565b91508288019350845b818110156101f3576101e5838651610143565b9484019492506001016101d2565b505084810360408601528551808252908201925081860190845b8181101561022b57825115158552938301939183019160010161020d565b509298975050505050505050565b9081526020019056fea2646970667358221220eb85327e285def14230424c52893aebecec1e387a50bb6b75fc4fdbed647f45f64736f6c63430006050033`},
+		[]string{`[{"inputs":[],"name":"F","outputs":[{"components":[{"internalType":"bytes32","name":"B","type":"bytes32"}],"internalType":"structStructs.A[]","name":"a","type":"tuple[]"},{"internalType":"uint256[]","name":"c","type":"uint256[]"},{"internalType":"bool[]","name":"d","type":"bool[]"}],"stateMutability":"view","type":"function"},{"inputs":[],"name":"G","outputs":[{"components":[{"internalType":"bytes32","name":"B","type":"bytes32"}],"internalType":"structStructs.A[]","name":"a","type":"tuple[]"}],"stateMutability":"view","type":"function"}]`},
+		`
+			"math/big"
+
+			"github.com/tenderly/bsc/accounts/abi/bind"
+			"github.com/tenderly/bsc/accounts/abi/bind/backends"
+			"github.com/tenderly/bsc/core"
+			"github.com/tenderly/bsc/crypto"
+		`,
+		`
+			// Generate a new random account and a funded simulator
+			key, _ := crypto.GenerateKey()
+			auth, _ := bind.NewKeyedTransactorWithChainID(key, big.NewInt(1337))
+		
+			sim := backends.NewSimulatedBackend(core.GenesisAlloc{auth.From: {Balance: big.NewInt(10000000000000000)}}, 10000000)
+			defer sim.Close()
+		
+			// Deploy a structs method invoker contract and execute its default method
+			_, _, structs, err := DeployStructs(auth, sim)
+			if err != nil {
+				t.Fatalf("Failed to deploy defaulter contract: %v", err)
+			}
+			sim.Commit()
+			opts := bind.CallOpts{}
+			if _, err := structs.F(&opts); err != nil {
+				t.Fatalf("Failed to invoke F method: %v", err)
+			}
+			if _, err := structs.G(&opts); err != nil {
+				t.Fatalf("Failed to invoke G method: %v", err)
 			}
 		`,
 		nil,
@@ -562,6 +633,45 @@ var bindTests = []struct {
 		nil,
 		nil,
 	},
+	{
+		`NonExistentStruct`,
+		`
+			contract NonExistentStruct {
+				function Struct() public view returns(uint256 a, uint256 b) {
+					return (10, 10);
+				}
+			}
+		`,
+		[]string{`6080604052348015600f57600080fd5b5060888061001e6000396000f3fe6080604052348015600f57600080fd5b506004361060285760003560e01c8063d5f6622514602d575b600080fd5b6033604c565b6040805192835260208301919091528051918290030190f35b600a809156fea264697066735822beefbeefbeefbeefbeefbeefbeefbeefbeefbeefbeefbeefbeefbeefbeefbeefbeef64736f6c6343decafe0033`},
+		[]string{`[{"inputs":[],"name":"Struct","outputs":[{"internalType":"uint256","name":"a","type":"uint256"},{"internalType":"uint256","name":"b","type":"uint256"}],"stateMutability":"pure","type":"function"}]`},
+		`
+			"github.com/tenderly/bsc/accounts/abi/bind"
+			"github.com/tenderly/bsc/accounts/abi/bind/backends"
+			"github.com/tenderly/bsc/common"
+			"github.com/tenderly/bsc/core"
+		`,
+		`
+			// Create a simulator and wrap a non-deployed contract
+
+			sim := backends.NewSimulatedBackend(core.GenesisAlloc{}, uint64(10000000000))
+			defer sim.Close()
+
+			nonexistent, err := NewNonExistentStruct(common.Address{}, sim)
+			if err != nil {
+				t.Fatalf("Failed to access non-existent contract: %v", err)
+			}
+			// Ensure that contract calls fail with the appropriate error
+			if res, err := nonexistent.Struct(nil); err == nil {
+				t.Fatalf("Call succeeded on non-existent contract: %v", res)
+			} else if (err != bind.ErrNoCode) {
+				t.Fatalf("Error mismatch: have %v, want %v", err, bind.ErrNoCode)
+			}
+		`,
+		nil,
+		nil,
+		nil,
+		nil,
+	},
 	// Tests that gas estimation works for contracts with weird gas mechanics too.
 	{
 		`FunkyGasPattern`,
@@ -591,9 +701,9 @@ var bindTests = []struct {
 		`
 			// Generate a new random account and a funded simulator
 			key, _ := crypto.GenerateKey()
-			auth := bind.NewKeyedTransactor(key)
+			auth, _ := bind.NewKeyedTransactorWithChainID(key, big.NewInt(1337))
 
-			sim := backends.NewSimulatedBackend(core.GenesisAlloc{auth.From: {Balance: big.NewInt(10000000000)}}, 10000000)
+			sim := backends.NewSimulatedBackend(core.GenesisAlloc{auth.From: {Balance: big.NewInt(10000000000000000)}}, 10000000)
 			defer sim.Close()
 
 			// Deploy a funky gas pattern contract
@@ -641,9 +751,9 @@ var bindTests = []struct {
 		`
 			// Generate a new random account and a funded simulator
 			key, _ := crypto.GenerateKey()
-			auth := bind.NewKeyedTransactor(key)
+			auth, _ := bind.NewKeyedTransactorWithChainID(key, big.NewInt(1337))
 
-			sim := backends.NewSimulatedBackend(core.GenesisAlloc{auth.From: {Balance: big.NewInt(10000000000)}}, 10000000)
+			sim := backends.NewSimulatedBackend(core.GenesisAlloc{auth.From: {Balance: big.NewInt(10000000000000000)}}, 10000000)
 			defer sim.Close()
 
 			// Deploy a sender tester contract and execute a structured call on it
@@ -716,9 +826,9 @@ var bindTests = []struct {
 		`
 			// Generate a new random account and a funded simulator
 			key, _ := crypto.GenerateKey()
-			auth := bind.NewKeyedTransactor(key)
+			auth, _ := bind.NewKeyedTransactorWithChainID(key, big.NewInt(1337))
 
-			sim := backends.NewSimulatedBackend(core.GenesisAlloc{auth.From: {Balance: big.NewInt(10000000000)}}, 10000000)
+			sim := backends.NewSimulatedBackend(core.GenesisAlloc{auth.From: {Balance: big.NewInt(10000000000000000)}}, 10000000)
 			defer sim.Close()
 
 			// Deploy a underscorer tester contract and execute a structured call on it
@@ -810,9 +920,9 @@ var bindTests = []struct {
 		`
 			// Generate a new random account and a funded simulator
 			key, _ := crypto.GenerateKey()
-			auth := bind.NewKeyedTransactor(key)
+			auth, _ := bind.NewKeyedTransactorWithChainID(key, big.NewInt(1337))
 
-			sim := backends.NewSimulatedBackend(core.GenesisAlloc{auth.From: {Balance: big.NewInt(10000000000)}}, 10000000)
+			sim := backends.NewSimulatedBackend(core.GenesisAlloc{auth.From: {Balance: big.NewInt(10000000000000000)}}, 10000000)
 			defer sim.Close()
 
 			// Deploy an eventer contract
@@ -1000,9 +1110,9 @@ var bindTests = []struct {
 		`
 			// Generate a new random account and a funded simulator
 			key, _ := crypto.GenerateKey()
-			auth := bind.NewKeyedTransactor(key)
+			auth, _ := bind.NewKeyedTransactorWithChainID(key, big.NewInt(1337))
 
-			sim := backends.NewSimulatedBackend(core.GenesisAlloc{auth.From: {Balance: big.NewInt(10000000000)}}, 10000000)
+			sim := backends.NewSimulatedBackend(core.GenesisAlloc{auth.From: {Balance: big.NewInt(10000000000000000)}}, 10000000)
 			defer sim.Close()
 
 			//deploy the test contract
@@ -1135,9 +1245,9 @@ var bindTests = []struct {
 
 		`
 			key, _ := crypto.GenerateKey()
-			auth := bind.NewKeyedTransactor(key)
+			auth, _ := bind.NewKeyedTransactorWithChainID(key, big.NewInt(1337))
 
-			sim := backends.NewSimulatedBackend(core.GenesisAlloc{auth.From: {Balance: big.NewInt(10000000000)}}, 10000000)
+			sim := backends.NewSimulatedBackend(core.GenesisAlloc{auth.From: {Balance: big.NewInt(10000000000000000)}}, 10000000)
 			defer sim.Close()
 
 			_, _, contract, err := DeployTuple(auth, sim)
@@ -1277,9 +1387,9 @@ var bindTests = []struct {
 		`
 			// Generate a new random account and a funded simulator
 			key, _ := crypto.GenerateKey()
-			auth := bind.NewKeyedTransactor(key)
+			auth, _ := bind.NewKeyedTransactorWithChainID(key, big.NewInt(1337))
 
-			sim := backends.NewSimulatedBackend(core.GenesisAlloc{auth.From: {Balance: big.NewInt(10000000000)}}, 10000000)
+			sim := backends.NewSimulatedBackend(core.GenesisAlloc{auth.From: {Balance: big.NewInt(10000000000000000)}}, 10000000)
 			defer sim.Close()
 
 			//deploy the test contract
@@ -1343,8 +1453,8 @@ var bindTests = []struct {
 		`
 		// Initialize test accounts
 		key, _ := crypto.GenerateKey()
-		auth := bind.NewKeyedTransactor(key)
-		sim := backends.NewSimulatedBackend(core.GenesisAlloc{auth.From: {Balance: big.NewInt(10000000000)}}, 10000000)
+		auth, _ := bind.NewKeyedTransactorWithChainID(key, big.NewInt(1337))
+		sim := backends.NewSimulatedBackend(core.GenesisAlloc{auth.From: {Balance: big.NewInt(10000000000000000)}}, 10000000)
 		defer sim.Close()
 
 		// deploy the test contract
@@ -1434,10 +1544,10 @@ var bindTests = []struct {
 		addr := crypto.PubkeyToAddress(key.PublicKey)
 
 		// Deploy registrar contract
-		sim := backends.NewSimulatedBackend(core.GenesisAlloc{addr: {Balance: big.NewInt(1000000000)}}, 10000000)
+		sim := backends.NewSimulatedBackend(core.GenesisAlloc{addr: {Balance: big.NewInt(10000000000000000)}}, 10000000)
 		defer sim.Close()
 
-		transactOpts := bind.NewKeyedTransactor(key)
+		transactOpts, _ := bind.NewKeyedTransactorWithChainID(key, big.NewInt(1337))
 		_, _, _, err := DeployIdentifierCollision(transactOpts, sim)
 		if err != nil {
 			t.Fatalf("failed to deploy contract: %v", err)
@@ -1496,10 +1606,10 @@ var bindTests = []struct {
 		addr := crypto.PubkeyToAddress(key.PublicKey)
 
 		// Deploy registrar contract
-		sim := backends.NewSimulatedBackend(core.GenesisAlloc{addr: {Balance: big.NewInt(1000000000)}}, 10000000)
+		sim := backends.NewSimulatedBackend(core.GenesisAlloc{addr: {Balance: big.NewInt(10000000000000000)}}, 10000000)
 		defer sim.Close()
 
-		transactOpts := bind.NewKeyedTransactor(key)
+		transactOpts, _ := bind.NewKeyedTransactorWithChainID(key, big.NewInt(1337))
 		_, _, c1, err := DeployContractOne(transactOpts, sim)
 		if err != nil {
 			t.Fatal("Failed to deploy contract")
@@ -1556,9 +1666,9 @@ var bindTests = []struct {
 		`
 			// Generate a new random account and a funded simulator
 			key, _ := crypto.GenerateKey()
-			auth := bind.NewKeyedTransactor(key)
+			auth, _ := bind.NewKeyedTransactorWithChainID(key, big.NewInt(1337))
 
-			sim := backends.NewSimulatedBackend(core.GenesisAlloc{auth.From: {Balance: big.NewInt(10000000000)}}, 10000000)
+			sim := backends.NewSimulatedBackend(core.GenesisAlloc{auth.From: {Balance: big.NewInt(10000000000000000)}}, 10000000)
 			defer sim.Close()
 
 			// Deploy a tester contract and execute a structured call on it
@@ -1594,11 +1704,7 @@ var bindTests = []struct {
 		contract NewFallbacks {
 			event Fallback(bytes data);
 			fallback() external {
-				bytes memory data;
-				assembly {
-					calldatacopy(data, 0, calldatasize())
-				}
-				emit Fallback(data);
+				emit Fallback(msg.data);
 			}
 	
 			event Received(address addr, uint value);
@@ -1607,7 +1713,7 @@ var bindTests = []struct {
 			}
 		}
 	   `,
-		[]string{"60806040523480156100115760006000fd5b50610017565b61016e806100266000396000f3fe60806040526004361061000d575b36610081575b7f88a5966d370b9919b20f3e2c13ff65706f196a4e32cc2c12bf57088f885258743334604051808373ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff1681526020018281526020019250505060405180910390a15b005b34801561008e5760006000fd5b505b606036600082377f9043988963722edecc2099c75b0af0ff76af14ffca42ed6bce059a20a2a9f986816040518080602001828103825283818151815260200191508051906020019080838360005b838110156100fa5780820151818401525b6020810190506100de565b50505050905090810190601f1680156101275780820380516001836020036101000a031916815260200191505b509250505060405180910390a1505b00fea26469706673582212205643ca37f40c2b352dc541f42e9e6720de065de756324b7fcc9fb1d67eda4a7d64736f6c63430006040033"},
+		[]string{"6080604052348015600f57600080fd5b506101078061001f6000396000f3fe608060405236605f577f88a5966d370b9919b20f3e2c13ff65706f196a4e32cc2c12bf57088f885258743334604051808373ffffffffffffffffffffffffffffffffffffffff1681526020018281526020019250505060405180910390a1005b348015606a57600080fd5b507f9043988963722edecc2099c75b0af0ff76af14ffca42ed6bce059a20a2a9f98660003660405180806020018281038252848482818152602001925080828437600081840152601f19601f820116905080830192505050935050505060405180910390a100fea26469706673582212201f994dcfbc53bf610b19176f9a361eafa77b447fd9c796fa2c615dfd0aaf3b8b64736f6c634300060c0033"},
 		[]string{`[{"anonymous":false,"inputs":[{"indexed":false,"internalType":"bytes","name":"data","type":"bytes"}],"name":"Fallback","type":"event"},{"anonymous":false,"inputs":[{"indexed":false,"internalType":"address","name":"addr","type":"address"},{"indexed":false,"internalType":"uint256","name":"value","type":"uint256"}],"name":"Received","type":"event"},{"stateMutability":"nonpayable","type":"fallback"},{"stateMutability":"payable","type":"receive"}]`},
 		`
 			"bytes"
@@ -1622,10 +1728,10 @@ var bindTests = []struct {
 			key, _ := crypto.GenerateKey()
 			addr := crypto.PubkeyToAddress(key.PublicKey)
 	
-			sim := backends.NewSimulatedBackend(core.GenesisAlloc{addr: {Balance: big.NewInt(1000000000)}}, 1000000)
+			sim := backends.NewSimulatedBackend(core.GenesisAlloc{addr: {Balance: big.NewInt(10000000000000000)}}, 1000000)
 			defer sim.Close()
 	
-			opts := bind.NewKeyedTransactor(key)
+			opts, _ := bind.NewKeyedTransactorWithChainID(key, big.NewInt(1337))
 			_, _, c, err := DeployNewFallbacks(opts, sim)
 			if err != nil {
 				t.Fatalf("Failed to deploy contract: %v", err)
@@ -1655,6 +1761,7 @@ var bindTests = []struct {
 			}
 	
 			// Test fallback function
+			gotEvent = false
 			opts.Value = nil
 			calldata := []byte{0x01, 0x02, 0x03}
 			c.Fallback(opts, calldata)
@@ -1678,6 +1785,261 @@ var bindTests = []struct {
 		nil,
 		nil,
 	},
+	// Test resolving single struct argument
+	{
+		`NewSingleStructArgument`,
+		`
+		 pragma solidity ^0.8.0;
+
+		 contract NewSingleStructArgument {
+			 struct MyStruct{
+				 uint256 a;
+				 uint256 b;
+			 }
+			 event StructEvent(MyStruct s);
+			 function TestEvent() public {
+				 emit StructEvent(MyStruct({a: 1, b: 2}));
+			 }
+		 }
+	   `,
+		[]string{"608060405234801561001057600080fd5b50610113806100206000396000f3fe6080604052348015600f57600080fd5b506004361060285760003560e01c806324ec1d3f14602d575b600080fd5b60336035565b005b7fb4b2ff75e30cb4317eaae16dd8a187dd89978df17565104caa6c2797caae27d460405180604001604052806001815260200160028152506040516078919060ba565b60405180910390a1565b6040820160008201516096600085018260ad565b50602082015160a7602085018260ad565b50505050565b60b48160d3565b82525050565b600060408201905060cd60008301846082565b92915050565b600081905091905056fea26469706673582212208823628796125bf9941ce4eda18da1be3cf2931b231708ab848e1bd7151c0c9a64736f6c63430008070033"},
+		[]string{`[{"anonymous":false,"inputs":[{"components":[{"internalType":"uint256","name":"a","type":"uint256"},{"internalType":"uint256","name":"b","type":"uint256"}],"indexed":false,"internalType":"struct Test.MyStruct","name":"s","type":"tuple"}],"name":"StructEvent","type":"event"},{"inputs":[],"name":"TestEvent","outputs":[],"stateMutability":"nonpayable","type":"function"}]`},
+		`
+			"math/big"
+
+			"github.com/tenderly/bsc/accounts/abi/bind"
+			"github.com/tenderly/bsc/accounts/abi/bind/backends"
+			"github.com/tenderly/bsc/core"
+			"github.com/tenderly/bsc/crypto"
+			"github.com/tenderly/bsc/eth/ethconfig"
+	   `,
+		`
+			var (
+				key, _  = crypto.GenerateKey()
+				user, _ = bind.NewKeyedTransactorWithChainID(key, big.NewInt(1337))
+				sim     = backends.NewSimulatedBackend(core.GenesisAlloc{user.From: {Balance: big.NewInt(1000000000000000000)}}, ethconfig.Defaults.Miner.GasCeil)
+			)
+			defer sim.Close()
+
+			_, _, d, err := DeployNewSingleStructArgument(user, sim)
+			if err != nil {
+				t.Fatalf("Failed to deploy contract %v", err)
+			}
+			sim.Commit()
+
+			_, err = d.TestEvent(user)
+			if err != nil {
+				t.Fatalf("Failed to call contract %v", err)
+			}
+			sim.Commit()
+
+			it, err := d.FilterStructEvent(nil)
+			if err != nil {
+				t.Fatalf("Failed to filter contract event %v", err)
+			}
+			var count int
+			for it.Next() {
+				if it.Event.S.A.Cmp(big.NewInt(1)) != 0 {
+					t.Fatal("Unexpected contract event")
+				}
+				if it.Event.S.B.Cmp(big.NewInt(2)) != 0 {
+					t.Fatal("Unexpected contract event")
+				}
+				count += 1
+			}
+			if count != 1 {
+				t.Fatal("Unexpected contract event number")
+			}
+			`,
+		nil,
+		nil,
+		nil,
+		nil,
+	},
+	// Test errors introduced in v0.8.4
+	{
+		`NewErrors`,
+		`
+		pragma solidity >0.8.4;
+	
+		contract NewErrors {
+			error MyError(uint256);
+			error MyError1(uint256);
+			error MyError2(uint256, uint256);
+			error MyError3(uint256 a, uint256 b, uint256 c);
+			function Error() public pure {
+				revert MyError3(1,2,3);
+			}
+		}
+	   `,
+		[]string{"0x6080604052348015600f57600080fd5b5060998061001e6000396000f3fe6080604052348015600f57600080fd5b506004361060285760003560e01c8063726c638214602d575b600080fd5b60336035565b005b60405163024876cd60e61b815260016004820152600260248201526003604482015260640160405180910390fdfea264697066735822122093f786a1bc60216540cd999fbb4a6109e0fef20abcff6e9107fb2817ca968f3c64736f6c63430008070033"},
+		[]string{`[{"inputs":[{"internalType":"uint256","name":"","type":"uint256"}],"name":"MyError","type":"error"},{"inputs":[{"internalType":"uint256","name":"","type":"uint256"}],"name":"MyError1","type":"error"},{"inputs":[{"internalType":"uint256","name":"","type":"uint256"},{"internalType":"uint256","name":"","type":"uint256"}],"name":"MyError2","type":"error"},{"inputs":[{"internalType":"uint256","name":"a","type":"uint256"},{"internalType":"uint256","name":"b","type":"uint256"},{"internalType":"uint256","name":"c","type":"uint256"}],"name":"MyError3","type":"error"},{"inputs":[],"name":"Error","outputs":[],"stateMutability":"pure","type":"function"}]`},
+		`
+			"math/big"
+	
+			"github.com/tenderly/bsc/accounts/abi/bind"
+			"github.com/tenderly/bsc/accounts/abi/bind/backends"
+			"github.com/tenderly/bsc/core"
+			"github.com/tenderly/bsc/crypto"
+			"github.com/tenderly/bsc/eth/ethconfig"
+	   `,
+		`
+			var (
+				key, _  = crypto.GenerateKey()
+				user, _ = bind.NewKeyedTransactorWithChainID(key, big.NewInt(1337))
+				sim     = backends.NewSimulatedBackend(core.GenesisAlloc{user.From: {Balance: big.NewInt(1000000000000000000)}}, ethconfig.Defaults.Miner.GasCeil)
+			)
+			defer sim.Close()
+	
+			_, tx, contract, err := DeployNewErrors(user, sim)
+			if err != nil {
+				t.Fatal(err)
+			}
+			sim.Commit()
+			_, err = bind.WaitDeployed(nil, sim, tx)
+			if err != nil {
+				t.Error(err)
+			}
+			if err := contract.Error(new(bind.CallOpts)); err == nil {
+				t.Fatalf("expected contract to throw error")
+			}
+			// TODO (MariusVanDerWijden unpack error using abigen
+			// once that is implemented
+	   `,
+		nil,
+		nil,
+		nil,
+		nil,
+	},
+	{
+		name: `ConstructorWithStructParam`,
+		contract: `
+		pragma solidity >=0.8.0 <0.9.0;
+		
+		contract ConstructorWithStructParam {
+			struct StructType {
+				uint256 field;
+			}
+		
+			constructor(StructType memory st) {}
+		}
+		`,
+		bytecode: []string{`0x608060405234801561001057600080fd5b506040516101c43803806101c48339818101604052810190610032919061014a565b50610177565b6000604051905090565b600080fd5b600080fd5b6000601f19601f8301169050919050565b7f4e487b7100000000000000000000000000000000000000000000000000000000600052604160045260246000fd5b6100958261004c565b810181811067ffffffffffffffff821117156100b4576100b361005d565b5b80604052505050565b60006100c7610038565b90506100d3828261008c565b919050565b6000819050919050565b6100eb816100d8565b81146100f657600080fd5b50565b600081519050610108816100e2565b92915050565b60006020828403121561012457610123610047565b5b61012e60206100bd565b9050600061013e848285016100f9565b60008301525092915050565b6000602082840312156101605761015f610042565b5b600061016e8482850161010e565b91505092915050565b603f806101856000396000f3fe6080604052600080fdfea2646970667358221220cdffa667affecefac5561f65f4a4ba914204a8d4eb859d8cd426fb306e5c12a364736f6c634300080a0033`},
+		abi:      []string{`[{"inputs":[{"components":[{"internalType":"uint256","name":"field","type":"uint256"}],"internalType":"struct ConstructorWithStructParam.StructType","name":"st","type":"tuple"}],"stateMutability":"nonpayable","type":"constructor"}]`},
+		imports: `
+			"math/big"
+
+			"github.com/tenderly/bsc/accounts/abi/bind"
+			"github.com/tenderly/bsc/accounts/abi/bind/backends"
+			"github.com/tenderly/bsc/core"
+			"github.com/tenderly/bsc/crypto"
+			"github.com/tenderly/bsc/eth/ethconfig"
+		`,
+		tester: `
+			var (
+				key, _  = crypto.GenerateKey()
+				user, _ = bind.NewKeyedTransactorWithChainID(key, big.NewInt(1337))
+				sim     = backends.NewSimulatedBackend(core.GenesisAlloc{user.From: {Balance: big.NewInt(1000000000000000000)}}, ethconfig.Defaults.Miner.GasCeil)
+			)
+			defer sim.Close()
+
+			_, tx, _, err := DeployConstructorWithStructParam(user, sim, ConstructorWithStructParamStructType{Field: big.NewInt(42)})
+			if err != nil {
+				t.Fatalf("DeployConstructorWithStructParam() got err %v; want nil err", err)
+			}
+			sim.Commit()
+			
+			if _, err = bind.WaitDeployed(nil, sim, tx); err != nil {
+				t.Logf("Deployment tx: %+v", tx)
+				t.Errorf("bind.WaitDeployed(nil, %T, <deployment tx>) got err %v; want nil err", sim, err)
+			}
+		`,
+	},
+	{
+		name: `NameConflict`,
+		contract: `
+		// SPDX-License-Identifier: GPL-3.0
+		pragma solidity >=0.4.22 <0.9.0;
+		contract oracle {
+			struct request {
+				 bytes data;
+				 bytes _data;
+			}
+			event log (int msg, int _msg);
+			function addRequest(request memory req) public pure {}
+			function getRequest() pure public returns (request memory) {
+				 return request("", "");
+			}
+		}
+		`,
+		bytecode: []string{"0x608060405234801561001057600080fd5b5061042b806100206000396000f3fe608060405234801561001057600080fd5b50600436106100365760003560e01c8063c2bb515f1461003b578063cce7b04814610059575b600080fd5b610043610075565b60405161005091906101af565b60405180910390f35b610073600480360381019061006e91906103ac565b6100b5565b005b61007d6100b8565b604051806040016040528060405180602001604052806000815250815260200160405180602001604052806000815250815250905090565b50565b604051806040016040528060608152602001606081525090565b600081519050919050565b600082825260208201905092915050565b60005b8381101561010c5780820151818401526020810190506100f1565b8381111561011b576000848401525b50505050565b6000601f19601f8301169050919050565b600061013d826100d2565b61014781856100dd565b93506101578185602086016100ee565b61016081610121565b840191505092915050565b600060408301600083015184820360008601526101888282610132565b915050602083015184820360208601526101a28282610132565b9150508091505092915050565b600060208201905081810360008301526101c9818461016b565b905092915050565b6000604051905090565b600080fd5b600080fd5b600080fd5b7f4e487b7100000000000000000000000000000000000000000000000000000000600052604160045260246000fd5b61022282610121565b810181811067ffffffffffffffff82111715610241576102406101ea565b5b80604052505050565b60006102546101d1565b90506102608282610219565b919050565b600080fd5b600080fd5b600080fd5b600067ffffffffffffffff82111561028f5761028e6101ea565b5b61029882610121565b9050602081019050919050565b82818337600083830152505050565b60006102c76102c284610274565b61024a565b9050828152602081018484840111156102e3576102e261026f565b5b6102ee8482856102a5565b509392505050565b600082601f83011261030b5761030a61026a565b5b813561031b8482602086016102b4565b91505092915050565b60006040828403121561033a576103396101e5565b5b610344604061024a565b9050600082013567ffffffffffffffff81111561036457610363610265565b5b610370848285016102f6565b600083015250602082013567ffffffffffffffff81111561039457610393610265565b5b6103a0848285016102f6565b60208301525092915050565b6000602082840312156103c2576103c16101db565b5b600082013567ffffffffffffffff8111156103e0576103df6101e0565b5b6103ec84828501610324565b9150509291505056fea264697066735822122033bca1606af9b6aeba1673f98c52003cec19338539fb44b86690ce82c51483b564736f6c634300080e0033"},
+		abi:      []string{`[ { "anonymous": false, "inputs": [ { "indexed": false, "internalType": "int256", "name": "msg", "type": "int256" }, { "indexed": false, "internalType": "int256", "name": "_msg", "type": "int256" } ], "name": "log", "type": "event" }, { "inputs": [ { "components": [ { "internalType": "bytes", "name": "data", "type": "bytes" }, { "internalType": "bytes", "name": "_data", "type": "bytes" } ], "internalType": "struct oracle.request", "name": "req", "type": "tuple" } ], "name": "addRequest", "outputs": [], "stateMutability": "pure", "type": "function" }, { "inputs": [], "name": "getRequest", "outputs": [ { "components": [ { "internalType": "bytes", "name": "data", "type": "bytes" }, { "internalType": "bytes", "name": "_data", "type": "bytes" } ], "internalType": "struct oracle.request", "name": "", "type": "tuple" } ], "stateMutability": "pure", "type": "function" } ]`},
+		imports: `
+			"math/big"
+
+			"github.com/tenderly/bsc/accounts/abi/bind"
+			"github.com/tenderly/bsc/accounts/abi/bind/backends"
+			"github.com/tenderly/bsc/core"
+			"github.com/tenderly/bsc/crypto"
+			"github.com/tenderly/bsc/eth/ethconfig"
+		`,
+		tester: `
+			var (
+				key, _  = crypto.GenerateKey()
+				user, _ = bind.NewKeyedTransactorWithChainID(key, big.NewInt(1337))
+				sim     = backends.NewSimulatedBackend(core.GenesisAlloc{user.From: {Balance: big.NewInt(1000000000000000000)}}, ethconfig.Defaults.Miner.GasCeil)
+			)
+			defer sim.Close()
+
+			_, tx, _, err := DeployNameConflict(user, sim)
+			if err != nil {
+				t.Fatalf("DeployNameConflict() got err %v; want nil err", err)
+			}
+			sim.Commit()
+			
+			if _, err = bind.WaitDeployed(nil, sim, tx); err != nil {
+				t.Logf("Deployment tx: %+v", tx)
+				t.Errorf("bind.WaitDeployed(nil, %T, <deployment tx>) got err %v; want nil err", sim, err)
+			}
+		`,
+	},
+	{
+		name: "RangeKeyword",
+		contract: `
+		// SPDX-License-Identifier: GPL-3.0
+		pragma solidity >=0.4.22 <0.9.0;
+		contract keywordcontract {
+			function functionWithKeywordParameter(range uint256) public pure {}
+		}
+		`,
+		bytecode: []string{"0x608060405234801561001057600080fd5b5060dc8061001f6000396000f3fe6080604052348015600f57600080fd5b506004361060285760003560e01c8063527a119f14602d575b600080fd5b60436004803603810190603f9190605b565b6045565b005b50565b6000813590506055816092565b92915050565b600060208284031215606e57606d608d565b5b6000607a848285016048565b91505092915050565b6000819050919050565b600080fd5b6099816083565b811460a357600080fd5b5056fea2646970667358221220d4f4525e2615516394055d369fb17df41c359e5e962734f27fd683ea81fd9db164736f6c63430008070033"},
+		abi:      []string{`[{"inputs":[{"internalType":"uint256","name":"range","type":"uint256"}],"name":"functionWithKeywordParameter","outputs":[],"stateMutability":"pure","type":"function"}]`},
+		imports: `
+			"math/big"
+
+			"github.com/tenderly/bsc/accounts/abi/bind"
+			"github.com/tenderly/bsc/accounts/abi/bind/backends"
+			"github.com/tenderly/bsc/core"
+			"github.com/tenderly/bsc/crypto"
+			"github.com/tenderly/bsc/eth/ethconfig"
+		`,
+		tester: `
+			var (
+				key, _  = crypto.GenerateKey()
+				user, _ = bind.NewKeyedTransactorWithChainID(key, big.NewInt(1337))
+				sim     = backends.NewSimulatedBackend(core.GenesisAlloc{user.From: {Balance: big.NewInt(1000000000000000000)}}, ethconfig.Defaults.Miner.GasCeil)
+			)
+			_, tx, _, err := DeployRangeKeyword(user, sim)
+			if err != nil {
+				t.Fatalf("error deploying contract: %v", err)
+			}
+			sim.Commit()
+
+			if _, err = bind.WaitDeployed(nil, sim, tx); err != nil {
+				t.Errorf("error deploying the contract: %v", err)
+			}
+		`,
+	},
 }
 
 // Tests that packages generated by the binder can be successfully compiled and
@@ -1689,11 +2051,11 @@ func TestGolangBindings(t *testing.T) {
 		t.Skip("go sdk not found for testing")
 	}
 	// Create a temporary workspace for the test suite
-	ws, err := ioutil.TempDir("", "")
+	ws, err := ioutil.TempDir("", "binding-test")
 	if err != nil {
 		t.Fatalf("failed to create temporary workspace: %v", err)
 	}
-	defer os.RemoveAll(ws)
+	//defer os.RemoveAll(ws)
 
 	pkg := filepath.Join(ws, "bindtest")
 	if err = os.MkdirAll(pkg, 0700); err != nil {
@@ -1701,22 +2063,23 @@ func TestGolangBindings(t *testing.T) {
 	}
 	// Generate the test suite for all the contracts
 	for i, tt := range bindTests {
-		var types []string
-		if tt.types != nil {
-			types = tt.types
-		} else {
-			types = []string{tt.name}
-		}
-		// Generate the binding and create a Go source file in the workspace
-		bind, err := Bind(types, tt.abi, tt.bytecode, tt.fsigs, "bindtest", LangGo, tt.libs, tt.aliases)
-		if err != nil {
-			t.Fatalf("test %d: failed to generate binding: %v", i, err)
-		}
-		if err = ioutil.WriteFile(filepath.Join(pkg, strings.ToLower(tt.name)+".go"), []byte(bind), 0600); err != nil {
-			t.Fatalf("test %d: failed to write binding: %v", i, err)
-		}
-		// Generate the test file with the injected test code
-		code := fmt.Sprintf(`
+		t.Run(tt.name, func(t *testing.T) {
+			var types []string
+			if tt.types != nil {
+				types = tt.types
+			} else {
+				types = []string{tt.name}
+			}
+			// Generate the binding and create a Go source file in the workspace
+			bind, err := Bind(types, tt.abi, tt.bytecode, tt.fsigs, "bindtest", LangGo, tt.libs, tt.aliases)
+			if err != nil {
+				t.Fatalf("test %d: failed to generate binding: %v", i, err)
+			}
+			if err = ioutil.WriteFile(filepath.Join(pkg, strings.ToLower(tt.name)+".go"), []byte(bind), 0600); err != nil {
+				t.Fatalf("test %d: failed to write binding: %v", i, err)
+			}
+			// Generate the test file with the injected test code
+			code := fmt.Sprintf(`
 			package bindtest
 
 			import (
@@ -1728,9 +2091,10 @@ func TestGolangBindings(t *testing.T) {
 				%s
 			}
 		`, tt.imports, tt.name, tt.tester)
-		if err := ioutil.WriteFile(filepath.Join(pkg, strings.ToLower(tt.name)+"_test.go"), []byte(code), 0600); err != nil {
-			t.Fatalf("test %d: failed to write tests: %v", i, err)
-		}
+			if err := ioutil.WriteFile(filepath.Join(pkg, strings.ToLower(tt.name)+"_test.go"), []byte(code), 0600); err != nil {
+				t.Fatalf("test %d: failed to write tests: %v", i, err)
+			}
+		})
 	}
 	// Convert the package to go modules and use the current source for go-ethereum
 	moder := exec.Command(gocmd, "mod", "init", "bindtest")
@@ -1739,10 +2103,34 @@ func TestGolangBindings(t *testing.T) {
 		t.Fatalf("failed to convert binding test to modules: %v\n%s", err, out)
 	}
 	pwd, _ := os.Getwd()
-	replacer := exec.Command(gocmd, "mod", "edit", "-replace", "github.com/tenderly/bsc="+filepath.Join(pwd, "..", "..", "..")) // Repo root
+	replacer := exec.Command(gocmd, "mod", "edit", "-x", "-require", "github.com/tenderly/bsc@v0.0.0", "-replace", "github.com/tenderly/bsc="+filepath.Join(pwd, "..", "..", "..")) // Repo root
 	replacer.Dir = pkg
 	if out, err := replacer.CombinedOutput(); err != nil {
 		t.Fatalf("failed to replace binding test dependency to current source tree: %v\n%s", err, out)
+	}
+
+	replacer = exec.Command(gocmd, "mod", "edit", "-x", "-require", "github.com/tendermint/tendermint@v0.0.0", "-replace", "github.com/tendermint/tendermint=github.com/bnb-chain/tendermint@v0.31.15") // Repo root
+	replacer.Dir = pkg
+	if out, err := replacer.CombinedOutput(); err != nil {
+		t.Fatalf("failed to replace tendermint dependency to bnb-chain source: %v\n%s", err, out)
+	}
+
+	replacer = exec.Command(gocmd, "mod", "edit", "-x", "-require", "github.com/cometbft/cometbft@v0.0.0", "-replace", "github.com/cometbft/cometbft=github.com/bnb-chain/greenfield-tendermint@v0.0.0-20230417032003-4cda1f296fb2") // Repo root
+	replacer.Dir = pkg
+	if out, err := replacer.CombinedOutput(); err != nil {
+		t.Fatalf("failed to replace cometbft dependency to bnb-chain source: %v\n%s", err, out)
+	}
+
+	replacer = exec.Command(gocmd, "mod", "edit", "-x", "-require", "github.com/syndtr/goleveldb@v1.0.1", "-replace", "github.com/syndtr/goleveldb=github.com/syndtr/goleveldb@v1.0.1-0.20210819022825-2ae1ddf74ef7")
+	replacer.Dir = pkg
+	if out, err := replacer.CombinedOutput(); err != nil {
+		t.Fatalf("failed to replace cometbft dependency to bnb-chain source: %v\n%s", err, out)
+	}
+
+	tidier := exec.Command(gocmd, "mod", "tidy", "-compat=1.19")
+	tidier.Dir = pkg
+	if out, err := tidier.CombinedOutput(); err != nil {
+		t.Fatalf("failed to tidy Go module file: %v\n%s", err, out)
 	}
 	// Test the entire package and report any failures
 	cmd := exec.Command(gocmd, "test", "-v", "-count", "1")

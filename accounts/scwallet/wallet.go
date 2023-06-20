@@ -33,14 +33,14 @@ import (
 	"sync"
 	"time"
 
-	ethereum "github.com/tenderly/bsc"
+	pcsc "github.com/gballet/go-libpcsclite"
+	"github.com/status-im/keycard-go/derivationpath"
+	"github.com/tenderly/bsc"
 	"github.com/tenderly/bsc/accounts"
 	"github.com/tenderly/bsc/common"
 	"github.com/tenderly/bsc/core/types"
 	"github.com/tenderly/bsc/crypto"
 	"github.com/tenderly/bsc/log"
-	pcsc "github.com/gballet/go-libpcsclite"
-	"github.com/status-im/keycard-go/derivationpath"
 )
 
 // ErrPairingPasswordNeeded is returned if opening the smart card requires pairing with a pairing
@@ -362,7 +362,7 @@ func (w *Wallet) Open(passphrase string) error {
 				return err
 			}
 			// Pairing succeeded, fall through to PIN checks. This will of course fail,
-			// but we can't return ErrPINNeeded directly here becase we don't know whether
+			// but we can't return ErrPINNeeded directly here because we don't know whether
 			// a PIN check or a PIN reset is needed.
 			passphrase = ""
 		}
@@ -637,8 +637,8 @@ func (w *Wallet) Derive(path accounts.DerivationPath, pin bool) (accounts.Accoun
 // to discover non zero accounts and automatically add them to list of tracked
 // accounts.
 //
-// Note, self derivaton will increment the last component of the specified path
-// opposed to decending into a child path to allow discovering accounts starting
+// Note, self derivation will increment the last component of the specified path
+// opposed to descending into a child path to allow discovering accounts starting
 // from non zero components.
 //
 // Some hardware wallets switched derivation paths through their evolution, so
@@ -699,7 +699,7 @@ func (w *Wallet) signHash(account accounts.Account, hash []byte) ([]byte, error)
 // the needed details via SignTxWithPassphrase, or by other means (e.g. unlock
 // the account in a keystore).
 func (w *Wallet) SignTx(account accounts.Account, tx *types.Transaction, chainID *big.Int) (*types.Transaction, error) {
-	signer := types.NewEIP155Signer(chainID)
+	signer := types.LatestSignerForChainID(chainID)
 	hash := signer.Hash(tx)
 	sig, err := w.signHash(account, hash[:])
 	if err != nil {
@@ -879,6 +879,7 @@ func (s *Session) walletStatus() (*walletStatus, error) {
 }
 
 // derivationPath fetches the wallet's current derivation path from the card.
+//
 //lint:ignore U1000 needs to be added to the console interface
 func (s *Session) derivationPath() (accounts.DerivationPath, error) {
 	response, err := s.Channel.transmitEncrypted(claSCWallet, insStatus, statusP1Path, 0, nil)
@@ -994,6 +995,7 @@ func (s *Session) derive(path accounts.DerivationPath) (accounts.Account, error)
 }
 
 // keyExport contains information on an exported keypair.
+//
 //lint:ignore U1000 needs to be added to the console interface
 type keyExport struct {
 	PublicKey  []byte `asn1:"tag:0"`
@@ -1001,6 +1003,7 @@ type keyExport struct {
 }
 
 // publicKey returns the public key for the current derivation path.
+//
 //lint:ignore U1000 needs to be added to the console interface
 func (s *Session) publicKey() ([]byte, error) {
 	response, err := s.Channel.transmitEncrypted(claSCWallet, insExportKey, exportP1Any, exportP2Pubkey, nil)

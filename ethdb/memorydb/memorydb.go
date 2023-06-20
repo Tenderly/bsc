@@ -129,6 +129,13 @@ func (db *Database) NewBatch() ethdb.Batch {
 	}
 }
 
+// NewBatchWithSize creates a write-only database batch with pre-allocated buffer.
+func (db *Database) NewBatchWithSize(size int) ethdb.Batch {
+	return &batch{
+		db: db,
+	}
+}
+
 // NewIterator creates a binary-alphabetical iterator over a subset
 // of database content with a particular key prefix, starting at a particular
 // initial key (or after, if it does not exist).
@@ -204,14 +211,14 @@ type batch struct {
 // Put inserts the given value into the batch for later committing.
 func (b *batch) Put(key, value []byte) error {
 	b.writes = append(b.writes, keyvalue{common.CopyBytes(key), common.CopyBytes(value), false})
-	b.size += len(value)
+	b.size += len(key) + len(value)
 	return nil
 }
 
 // Delete inserts the a key removal into the batch for later committing.
 func (b *batch) Delete(key []byte) error {
 	b.writes = append(b.writes, keyvalue{common.CopyBytes(key), nil, true})
-	b.size += 1
+	b.size += len(key)
 	return nil
 }
 

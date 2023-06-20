@@ -31,6 +31,7 @@ import (
 	"time"
 
 	"github.com/tenderly/bsc/common"
+	"github.com/tenderly/bsc/common/gopool"
 	"github.com/tenderly/bsc/common/hexutil"
 	"github.com/tenderly/bsc/consensus"
 	"github.com/tenderly/bsc/core/types"
@@ -48,7 +49,7 @@ var (
 
 // Seal implements consensus.Engine, attempting to find a nonce that satisfies
 // the block's difficulty requirements.
-func (ethash *Ethash) Seal(chain consensus.ChainReader, block *types.Block, results chan<- *types.Block, stop <-chan struct{}) error {
+func (ethash *Ethash) Seal(chain consensus.ChainHeaderReader, block *types.Block, results chan<- *types.Block, stop <-chan struct{}) error {
 	// If we're running a fake PoW, simply return a 0 nonce immediately
 	if ethash.config.PowMode == ModeFake || ethash.config.PowMode == ModeFullFake {
 		header := block.Header()
@@ -100,7 +101,7 @@ func (ethash *Ethash) Seal(chain consensus.ChainReader, block *types.Block, resu
 		}(i, uint64(ethash.rand.Int63()))
 	}
 	// Wait until sealing is terminated or a nonce is found
-	go func() {
+	gopool.Submit(func() {
 		var result *types.Block
 		select {
 		case <-stop:
@@ -123,7 +124,7 @@ func (ethash *Ethash) Seal(chain consensus.ChainReader, block *types.Block, resu
 		}
 		// Wait for all miners to terminate and return the block
 		pend.Wait()
-	}()
+	})
 	return nil
 }
 
@@ -140,8 +141,9 @@ func (ethash *Ethash) mine(block *types.Block, id int, seed uint64, abort chan s
 	)
 	// Start generating random nonces until we abort or find a good one
 	var (
-		attempts = int64(0)
-		nonce    = seed
+		attempts  = int64(0)
+		nonce     = seed
+		powBuffer = new(big.Int)
 	)
 	logger := ethash.config.Log.New("miner", id)
 	logger.Trace("Started ethash search for new nonces", "seed", seed)
@@ -163,7 +165,7 @@ search:
 			}
 			// Compute the PoW value of this nonce
 			digest, result := hashimotoFull(dataset.dataset, hash, nonce)
-			if new(big.Int).SetBytes(result).Cmp(target) <= 0 {
+			if powBuffer.SetBytes(result).Cmp(target) <= 0 {
 				// Correct nonce found, create a new header with it
 				header = types.CopyHeader(header)
 				header.Nonce = types.EncodeNonce(nonce)
@@ -338,10 +340,11 @@ func (s *remoteSealer) loop() {
 // makeWork creates a work package for external miner.
 //
 // The work package consists of 3 strings:
-//   result[0], 32 bytes hex encoded current block header pow-hash
-//   result[1], 32 bytes hex encoded seed hash used for DAG
-//   result[2], 32 bytes hex encoded boundary condition ("target"), 2^256/difficulty
-//   result[3], hex encoded block number
+//
+//	result[0], 32 bytes hex encoded current block header pow-hash
+//	result[1], 32 bytes hex encoded seed hash used for DAG
+//	result[2], 32 bytes hex encoded boundary condition ("target"), 2^256/difficulty
+//	result[3], hex encoded block number
 func (s *remoteSealer) makeWork(block *types.Block) {
 	hash := s.ethash.SealHash(block.Header())
 	s.currentWork[0] = hash.Hex()
@@ -358,7 +361,16 @@ func (s *remoteSealer) makeWork(block *types.Block) {
 // new work to be processed.
 func (s *remoteSealer) notifyWork() {
 	work := s.currentWork
-	blob, _ := json.Marshal(work)
+
+	// Encode the JSON payload of the notification. When NotifyFull is set,
+	// this is the complete block header, otherwise it is a JSON array.
+	var blob []byte
+	if s.ethash.config.NotifyFull {
+		blob, _ = json.Marshal(s.currentBlock.Header())
+	} else {
+		blob, _ = json.Marshal(work)
+	}
+
 	s.reqWG.Add(len(s.notifyURLs))
 	for _, url := range s.notifyURLs {
 		go s.sendNotification(s.notifyCtx, url, blob, work)

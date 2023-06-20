@@ -33,6 +33,7 @@ import (
 	"time"
 
 	"github.com/tenderly/bsc/common"
+	"github.com/tenderly/bsc/common/gopool"
 	"github.com/tenderly/bsc/log"
 	"github.com/tenderly/bsc/p2p/enode"
 	"github.com/tenderly/bsc/p2p/netutil"
@@ -79,6 +80,8 @@ type Table struct {
 	closeReq   chan struct{}
 	closed     chan struct{}
 
+	enrFilter NodeFilterFunc
+
 	nodeAddedHook func(*node) // for testing
 }
 
@@ -99,7 +102,7 @@ type bucket struct {
 	ips          netutil.DistinctNetSet
 }
 
-func newTable(t transport, db *enode.DB, bootnodes []*enode.Node, log log.Logger) (*Table, error) {
+func newTable(t transport, db *enode.DB, bootnodes []*enode.Node, log log.Logger, filter NodeFilterFunc) (*Table, error) {
 	tab := &Table{
 		net:        t,
 		db:         db,
@@ -110,6 +113,7 @@ func newTable(t transport, db *enode.DB, bootnodes []*enode.Node, log log.Logger
 		rand:       mrand.New(mrand.NewSource(0)),
 		ips:        netutil.DistinctNetSet{Subnet: tableSubnet, Limit: tableIPLimit},
 		log:        log,
+		enrFilter:  filter,
 	}
 	if err := tab.setFallbackNodes(bootnodes); err != nil {
 		return nil, err
@@ -229,8 +233,9 @@ func (tab *Table) loop() {
 	defer copyNodes.Stop()
 
 	// Start initial refresh.
-	go tab.doRefresh(refreshDone)
-
+	gopool.Submit(func() {
+		tab.doRefresh(refreshDone)
+	})
 loop:
 	for {
 		select {
@@ -238,13 +243,18 @@ loop:
 			tab.seedRand()
 			if refreshDone == nil {
 				refreshDone = make(chan struct{})
-				go tab.doRefresh(refreshDone)
+				gopool.Submit(func() {
+					tab.doRefresh(refreshDone)
+				})
 			}
 		case req := <-tab.refreshReq:
 			waiting = append(waiting, req)
 			if refreshDone == nil {
 				refreshDone = make(chan struct{})
-				go tab.doRefresh(refreshDone)
+				gopool.Submit(
+					func() {
+						tab.doRefresh(refreshDone)
+					})
 			}
 		case <-refreshDone:
 			for _, ch := range waiting {
@@ -253,12 +263,17 @@ loop:
 			waiting, refreshDone = nil, nil
 		case <-revalidate.C:
 			revalidateDone = make(chan struct{})
-			go tab.doRevalidate(revalidateDone)
+			gopool.Submit(func() {
+				tab.doRevalidate(revalidateDone)
+			})
 		case <-revalidateDone:
 			revalidate.Reset(tab.nextRevalidateTime())
 			revalidateDone = nil
 		case <-copyNodes.C:
-			go tab.copyLiveNodes()
+			gopool.Submit(func() {
+				tab.copyLiveNodes()
+			})
+
 		case <-tab.closeReq:
 			break loop
 		}
@@ -327,10 +342,16 @@ func (tab *Table) doRevalidate(done chan<- struct{}) {
 
 	// Also fetch record if the node replied and returned a higher sequence number.
 	if last.Seq() < remoteSeq {
-		n, err := tab.net.RequestENR(unwrapNode(last))
-		if err != nil {
-			tab.log.Debug("ENR request failed", "id", last.ID(), "addr", last.addr(), "err", err)
+		n, enrErr := tab.net.RequestENR(unwrapNode(last))
+		if enrErr != nil {
+			tab.log.Debug("ENR request failed", "id", last.ID(), "addr", last.addr(), "err", enrErr)
 		} else {
+			if tab.enrFilter != nil {
+				if !tab.enrFilter(n.Record()) {
+					tab.log.Trace("ENR record filter out", "id", last.ID(), "addr", last.addr())
+					err = fmt.Errorf("filtered node")
+				}
+			}
 			last = &node{Node: *n, addedAt: last.addedAt, livenessChecks: last.livenessChecks}
 		}
 	}
@@ -377,7 +398,7 @@ func (tab *Table) nextRevalidateTime() time.Duration {
 }
 
 // copyLiveNodes adds nodes from the table to the database if they have been in the table
-// longer then minTableTime.
+// longer than seedMinTableTime.
 func (tab *Table) copyLiveNodes() {
 	tab.mutex.Lock()
 	defer tab.mutex.Unlock()
@@ -392,22 +413,35 @@ func (tab *Table) copyLiveNodes() {
 	}
 }
 
-// closest returns the n nodes in the table that are closest to the
-// given id. The caller must hold tab.mutex.
-func (tab *Table) closest(target enode.ID, nresults int, checklive bool) *nodesByDistance {
-	// This is a very wasteful way to find the closest nodes but
-	// obviously correct. I believe that tree-based buckets would make
-	// this easier to implement efficiently.
-	close := &nodesByDistance{target: target}
+// findnodeByID returns the n nodes in the table that are closest to the given id.
+// This is used by the FINDNODE/v4 handler.
+//
+// The preferLive parameter says whether the caller wants liveness-checked results. If
+// preferLive is true and the table contains any verified nodes, the result will not
+// contain unverified nodes. However, if there are no verified nodes at all, the result
+// will contain unverified nodes.
+func (tab *Table) findnodeByID(target enode.ID, nresults int, preferLive bool) *nodesByDistance {
+	tab.mutex.Lock()
+	defer tab.mutex.Unlock()
+
+	// Scan all buckets. There might be a better way to do this, but there aren't that many
+	// buckets, so this solution should be fine. The worst-case complexity of this loop
+	// is O(tab.len() * nresults).
+	nodes := &nodesByDistance{target: target}
+	liveNodes := &nodesByDistance{target: target}
 	for _, b := range &tab.buckets {
 		for _, n := range b.entries {
-			if checklive && n.livenessChecks == 0 {
-				continue
+			nodes.push(n, nresults)
+			if preferLive && n.livenessChecks > 0 {
+				liveNodes.push(n, nresults)
 			}
-			close.push(n, nresults)
 		}
 	}
-	return close
+
+	if preferLive && len(liveNodes.entries) > 0 {
+		return liveNodes
+	}
+	return nodes
 }
 
 // len returns the number of nodes in the table.
@@ -419,6 +453,14 @@ func (tab *Table) len() (n int) {
 		n += len(b.entries)
 	}
 	return n
+}
+
+// bucketLen returns the number of nodes in the bucket for the given ID.
+func (tab *Table) bucketLen(id enode.ID) int {
+	tab.mutex.Lock()
+	defer tab.mutex.Unlock()
+
+	return len(tab.bucket(id).entries)
 }
 
 // bucket returns the bucket for the given node ID hash.
@@ -440,7 +482,17 @@ func (tab *Table) bucketAtDistance(d int) *bucket {
 //
 // The caller must not hold tab.mutex.
 func (tab *Table) addSeenNode(n *node) {
+	gopool.Submit(func() {
+		tab.addSeenNodeSync(n)
+	})
+}
+
+func (tab *Table) addSeenNodeSync(n *node) {
 	if n.ID() == tab.self().ID() {
+		return
+	}
+
+	if tab.filterNode(n) {
 		return
 	}
 
@@ -469,6 +521,20 @@ func (tab *Table) addSeenNode(n *node) {
 	}
 }
 
+func (tab *Table) filterNode(n *node) bool {
+	if tab.enrFilter == nil {
+		return false
+	}
+	if node, err := tab.net.RequestENR(unwrapNode(n)); err != nil {
+		tab.log.Debug("ENR request failed", "id", n.ID(), "addr", n.addr(), "err", err)
+		return false
+	} else if !tab.enrFilter(node.Record()) {
+		tab.log.Trace("ENR record filter out", "id", n.ID(), "addr", n.addr())
+		return true
+	}
+	return false
+}
+
 // addVerifiedNode adds a node whose existence has been verified recently to the front of a
 // bucket. If the node is already in the bucket, it is moved to the front. If the bucket
 // has no space, the node is added to the replacements list.
@@ -478,14 +544,23 @@ func (tab *Table) addSeenNode(n *node) {
 // ping repeatedly.
 //
 // The caller must not hold tab.mutex.
+
 func (tab *Table) addVerifiedNode(n *node) {
+	gopool.Submit(func() {
+		tab.addVerifiedNodeSync(n)
+	})
+}
+
+func (tab *Table) addVerifiedNodeSync(n *node) {
 	if !tab.isInitDone() {
 		return
 	}
 	if n.ID() == tab.self().ID() {
 		return
 	}
-
+	if tab.filterNode(n) {
+		return
+	}
 	tab.mutex.Lock()
 	defer tab.mutex.Unlock()
 	b := tab.bucket(n.ID())
@@ -520,6 +595,9 @@ func (tab *Table) delete(node *node) {
 }
 
 func (tab *Table) addIP(b *bucket, ip net.IP) bool {
+	if len(ip) == 0 {
+		return false // Nodes without IP cannot be added.
+	}
 	if netutil.IsLAN(ip) {
 		return true
 	}

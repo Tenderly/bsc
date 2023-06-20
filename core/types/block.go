@@ -19,6 +19,7 @@ package types
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"math/big"
@@ -28,13 +29,41 @@ import (
 
 	"github.com/tenderly/bsc/common"
 	"github.com/tenderly/bsc/common/hexutil"
+	"github.com/tenderly/bsc/crypto"
 	"github.com/tenderly/bsc/rlp"
-	"golang.org/x/crypto/sha3"
 )
 
 var (
-	EmptyRootHash  = DeriveSha(Transactions{})
+	EmptyRootHash = common.HexToHash("56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
+	EmptyCodeHash = crypto.Keccak256(nil)
+
 	EmptyUncleHash = rlpHash([]*Header(nil))
+)
+
+type VerifyStatus struct {
+	Code uint16
+	Msg  string
+}
+
+var (
+	// StatusVerified means the processing of request going as expected and found the root correctly.
+	StatusVerified          = VerifyStatus{Code: 0x100}
+	StatusFullVerified      = VerifyStatus{Code: 0x101, Msg: "state root full verified"}
+	StatusPartiallyVerified = VerifyStatus{Code: 0x102, Msg: "state root partially verified, because of difflayer not found"}
+
+	// StatusFailed means the request has something wrong.
+	StatusFailed           = VerifyStatus{Code: 0x200}
+	StatusDiffHashMismatch = VerifyStatus{Code: 0x201, Msg: "verify failed because of blockhash mismatch with diffhash"}
+	StatusImpossibleFork   = VerifyStatus{Code: 0x202, Msg: "verify failed because of impossible fork detected"}
+
+	// StatusUncertain means verify node can't give a certain result of the request.
+	StatusUncertain    = VerifyStatus{Code: 0x300}
+	StatusBlockTooNew  = VerifyStatus{Code: 0x301, Msg: "can’t verify because of block number larger than current height more than 11"}
+	StatusBlockNewer   = VerifyStatus{Code: 0x302, Msg: "can’t verify because of block number larger than current height"}
+	StatusPossibleFork = VerifyStatus{Code: 0x303, Msg: "can’t verify because of possible fork detected"}
+
+	// StatusUnexpectedError is unexpected internal error.
+	StatusUnexpectedError = VerifyStatus{Code: 0x400, Msg: "can’t verify because of unexpected internal error"}
 )
 
 // A BlockNonce is a 64-bit hash which proves (combined with the
@@ -64,13 +93,14 @@ func (n *BlockNonce) UnmarshalText(input []byte) error {
 	return hexutil.UnmarshalFixedText("BlockNonce", input, n[:])
 }
 
-//go:generate gencodec -type Header -field-override headerMarshaling -out gen_header_json.go
+//go:generate go run github.com/fjl/gencodec@latest -type Header -field-override headerMarshaling -out gen_header_json.go
+//go:generate go run ../../rlp/rlpgen -type Header -out gen_header_rlp.go
 
 // Header represents a block header in the Ethereum blockchain.
 type Header struct {
 	ParentHash  common.Hash    `json:"parentHash"       gencodec:"required"`
 	UncleHash   common.Hash    `json:"sha3Uncles"       gencodec:"required"`
-	Coinbase    common.Address `json:"miner"            gencodec:"required"`
+	Coinbase    common.Address `json:"miner"`
 	Root        common.Hash    `json:"stateRoot"        gencodec:"required"`
 	TxHash      common.Hash    `json:"transactionsRoot" gencodec:"required"`
 	ReceiptHash common.Hash    `json:"receiptsRoot"     gencodec:"required"`
@@ -83,6 +113,15 @@ type Header struct {
 	Extra       []byte         `json:"extraData"        gencodec:"required"`
 	MixDigest   common.Hash    `json:"mixHash"`
 	Nonce       BlockNonce     `json:"nonce"`
+
+	// BaseFee was added by EIP-1559 and is ignored in legacy headers.
+	BaseFee *big.Int `json:"baseFeePerGas" rlp:"optional"`
+
+	/*
+		TODO (MariusVanDerWijden) Add this field once needed
+		// Random was added during the merge and contains the BeaconState randomness
+		Random common.Hash `json:"random" rlp:"optional"`
+	*/
 }
 
 // field type overrides for gencodec
@@ -93,6 +132,7 @@ type headerMarshaling struct {
 	GasUsed    hexutil.Uint64
 	Time       hexutil.Uint64
 	Extra      hexutil.Bytes
+	BaseFee    *hexutil.Big
 	Hash       common.Hash `json:"hash"` // adds call to Hash() in MarshalJSON
 }
 
@@ -126,14 +166,23 @@ func (h *Header) SanityCheck() error {
 	if eLen := len(h.Extra); eLen > 100*1024 {
 		return fmt.Errorf("too large block extradata: size %d", eLen)
 	}
+	if h.BaseFee != nil {
+		if bfLen := h.BaseFee.BitLen(); bfLen > 256 {
+			return fmt.Errorf("too large base fee: bitlen %d", bfLen)
+		}
+	}
 	return nil
 }
 
-func rlpHash(x interface{}) (h common.Hash) {
-	hw := sha3.NewLegacyKeccak256()
-	rlp.Encode(hw, x)
-	hw.Sum(h[:0])
-	return h
+// EmptyBody returns true if there is no additional 'body' to complete the header
+// that is: no transactions and no uncles.
+func (h *Header) EmptyBody() bool {
+	return h.TxHash == EmptyRootHash && h.UncleHash == EmptyUncleHash
+}
+
+// EmptyReceipts returns true if there are no receipts for this header/block.
+func (h *Header) EmptyReceipts() bool {
+	return h.ReceiptHash == EmptyRootHash
 }
 
 // Body is a simple (mutable, non-safe) data container for storing and moving
@@ -153,43 +202,17 @@ type Block struct {
 	hash atomic.Value
 	size atomic.Value
 
-	// Td is used by package core to store the total difficulty
-	// of the chain up to and including the block.
-	td *big.Int
-
 	// These fields are used by package eth to track
 	// inter-peer block relay.
 	ReceivedAt   time.Time
 	ReceivedFrom interface{}
 }
 
-// DeprecatedTd is an old relic for extracting the TD of a block. It is in the
-// code solely to facilitate upgrading the database from the old format to the
-// new, after which it should be deleted. Do not use!
-func (b *Block) DeprecatedTd() *big.Int {
-	return b.td
-}
-
-// [deprecated by eth/63]
-// StorageBlock defines the RLP encoding of a Block stored in the
-// state database. The StorageBlock encoding contains fields that
-// would otherwise need to be recomputed.
-type StorageBlock Block
-
 // "external" block encoding. used for eth protocol, etc.
 type extblock struct {
 	Header *Header
 	Txs    []*Transaction
 	Uncles []*Header
-}
-
-// [deprecated by eth/63]
-// "storage" block encoding. used for database.
-type storageblock struct {
-	Header *Header
-	Txs    []*Transaction
-	Uncles []*Header
-	TD     *big.Int
 }
 
 // NewBlock creates a new block. The input data is copied,
@@ -199,14 +222,14 @@ type storageblock struct {
 // The values of TxHash, UncleHash, ReceiptHash and Bloom in header
 // are ignored and set to values derived from the given txs, uncles
 // and receipts.
-func NewBlock(header *Header, txs []*Transaction, uncles []*Header, receipts []*Receipt) *Block {
-	b := &Block{header: CopyHeader(header), td: new(big.Int)}
+func NewBlock(header *Header, txs []*Transaction, uncles []*Header, receipts []*Receipt, hasher TrieHasher) *Block {
+	b := &Block{header: CopyHeader(header)}
 
 	// TODO: panic if len(txs) != len(receipts)
 	if len(txs) == 0 {
 		b.header.TxHash = EmptyRootHash
 	} else {
-		b.header.TxHash = DeriveSha(Transactions(txs))
+		b.header.TxHash = DeriveSha(Transactions(txs), hasher)
 		b.transactions = make(Transactions, len(txs))
 		copy(b.transactions, txs)
 	}
@@ -214,7 +237,7 @@ func NewBlock(header *Header, txs []*Transaction, uncles []*Header, receipts []*
 	if len(receipts) == 0 {
 		b.header.ReceiptHash = EmptyRootHash
 	} else {
-		b.header.ReceiptHash = DeriveSha(Receipts(receipts))
+		b.header.ReceiptHash = DeriveSha(Receipts(receipts), hasher)
 		b.header.Bloom = CreateBloom(receipts)
 	}
 
@@ -248,6 +271,9 @@ func CopyHeader(h *Header) *Header {
 	if cpy.Number = new(big.Int); h.Number != nil {
 		cpy.Number.Set(h.Number)
 	}
+	if h.BaseFee != nil {
+		cpy.BaseFee = new(big.Int).Set(h.BaseFee)
+	}
 	if len(h.Extra) > 0 {
 		cpy.Extra = make([]byte, len(h.Extra))
 		copy(cpy.Extra, h.Extra)
@@ -274,16 +300,6 @@ func (b *Block) EncodeRLP(w io.Writer) error {
 		Txs:    b.transactions,
 		Uncles: b.uncles,
 	})
-}
-
-// [deprecated by eth/63]
-func (b *StorageBlock) DecodeRLP(s *rlp.Stream) error {
-	var sb storageblock
-	if err := s.Decode(&sb); err != nil {
-		return err
-	}
-	b.header, b.uncles, b.transactions, b.td = sb.Header, sb.Uncles, sb.Txs, sb.TD
-	return nil
 }
 
 // TODO: copies
@@ -318,6 +334,13 @@ func (b *Block) ReceiptHash() common.Hash { return b.header.ReceiptHash }
 func (b *Block) UncleHash() common.Hash   { return b.header.UncleHash }
 func (b *Block) Extra() []byte            { return common.CopyBytes(b.header.Extra) }
 
+func (b *Block) BaseFee() *big.Int {
+	if b.header.BaseFee == nil {
+		return nil
+	}
+	return new(big.Int).Set(b.header.BaseFee)
+}
+
 func (b *Block) Header() *Header { return CopyHeader(b.header) }
 
 // Body returns the non-header content of the block.
@@ -334,6 +357,8 @@ func (b *Block) Size() common.StorageSize {
 	b.size.Store(common.StorageSize(c))
 	return common.StorageSize(c)
 }
+
+func (b *Block) SetRoot(root common.Hash) { b.header.Root = root }
 
 // SanityCheck can be used to prevent that unbounded fields are
 // stuffed with junk data to add processing overhead
@@ -393,3 +418,122 @@ func (b *Block) Hash() common.Hash {
 }
 
 type Blocks []*Block
+
+// HeaderParentHashFromRLP returns the parentHash of an RLP-encoded
+// header. If 'header' is invalid, the zero hash is returned.
+func HeaderParentHashFromRLP(header []byte) common.Hash {
+	// parentHash is the first list element.
+	listContent, _, err := rlp.SplitList(header)
+	if err != nil {
+		return common.Hash{}
+	}
+	parentHash, _, err := rlp.SplitString(listContent)
+	if err != nil {
+		return common.Hash{}
+	}
+	if len(parentHash) != 32 {
+		return common.Hash{}
+	}
+	return common.BytesToHash(parentHash)
+}
+
+type DiffLayer struct {
+	BlockHash common.Hash
+	Number    uint64
+	Receipts  Receipts // Receipts are duplicated stored to simplify the logic
+	Codes     []DiffCode
+	Destructs []common.Address
+	Accounts  []DiffAccount
+	Storages  []DiffStorage
+
+	DiffHash atomic.Value
+}
+
+type ExtDiffLayer struct {
+	BlockHash common.Hash
+	Number    uint64
+	Receipts  []*ReceiptForStorage // Receipts are duplicated stored to simplify the logic
+	Codes     []DiffCode
+	Destructs []common.Address
+	Accounts  []DiffAccount
+	Storages  []DiffStorage
+}
+
+// DecodeRLP decodes the Ethereum
+func (d *DiffLayer) DecodeRLP(s *rlp.Stream) error {
+	var ed ExtDiffLayer
+	if err := s.Decode(&ed); err != nil {
+		return err
+	}
+	d.BlockHash, d.Number, d.Codes, d.Destructs, d.Accounts, d.Storages =
+		ed.BlockHash, ed.Number, ed.Codes, ed.Destructs, ed.Accounts, ed.Storages
+
+	d.Receipts = make([]*Receipt, len(ed.Receipts))
+	for i, storageReceipt := range ed.Receipts {
+		d.Receipts[i] = (*Receipt)(storageReceipt)
+	}
+	return nil
+}
+
+// EncodeRLP serializes b into the Ethereum RLP block format.
+func (d *DiffLayer) EncodeRLP(w io.Writer) error {
+	storageReceipts := make([]*ReceiptForStorage, len(d.Receipts))
+	for i, receipt := range d.Receipts {
+		storageReceipts[i] = (*ReceiptForStorage)(receipt)
+	}
+	return rlp.Encode(w, ExtDiffLayer{
+		BlockHash: d.BlockHash,
+		Number:    d.Number,
+		Receipts:  storageReceipts,
+		Codes:     d.Codes,
+		Destructs: d.Destructs,
+		Accounts:  d.Accounts,
+		Storages:  d.Storages,
+	})
+}
+
+func (d *DiffLayer) Validate() error {
+	if d.BlockHash == (common.Hash{}) {
+		return errors.New("blockHash can't be empty")
+	}
+	for _, storage := range d.Storages {
+		if len(storage.Keys) != len(storage.Vals) {
+			return errors.New("the length of keys and values mismatch in storage")
+		}
+	}
+	return nil
+}
+
+type DiffCode struct {
+	Hash common.Hash
+	Code []byte
+}
+
+type DiffAccount struct {
+	Account common.Address
+	Blob    []byte
+}
+
+type DiffStorage struct {
+	Account common.Address
+	Keys    []string
+	Vals    [][]byte
+}
+
+func (storage *DiffStorage) Len() int { return len(storage.Keys) }
+func (storage *DiffStorage) Swap(i, j int) {
+	storage.Keys[i], storage.Keys[j] = storage.Keys[j], storage.Keys[i]
+	storage.Vals[i], storage.Vals[j] = storage.Vals[j], storage.Vals[i]
+}
+func (storage *DiffStorage) Less(i, j int) bool { return storage.Keys[i] < storage.Keys[j] }
+
+type DiffAccountsInTx struct {
+	TxHash   common.Hash
+	Accounts map[common.Address]*big.Int
+}
+
+type DiffAccountsInBlock struct {
+	Number       uint64
+	BlockHash    common.Hash
+	Transactions []DiffAccountsInTx
+}
